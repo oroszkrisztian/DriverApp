@@ -1,0 +1,4 @@
+https://auth-db516.hstgr.io/index.php?route=/sql&db=u215863437_clearservice&table=masterlogin&pos=0&lang=en
+
+create apk: 
+ java -jar "D:\FACULTATE\bundletool-all-1.17.0.jar" build-apks --bundle="C:\Users\kriszti\Desktop\DriverApp\app\build\app\outputs\bundle\release\app-release.aab" --output="C:\Users\kriszti\Desktop\DriverApp\app\build\app\outputs\apks\driverApp.apks
