@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:app/expense_log_page.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -269,8 +270,10 @@ class _DriverPageState extends State<DriverPage> {
               FloatingActionButton(
                 heroTag: 'expense_log',
                 onPressed: () {
-                  // Add functionality for Expense Log button here in the future
-                  Navigator.of(context).pop(); // Just close the dialog for now
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ExpenseLogPage()),
+                  );// Just close the dialog for now
                 },
                 backgroundColor: const Color.fromARGB(255, 101, 204, 82),
                 child: const Column(
@@ -587,8 +590,11 @@ class _DriverPageState extends State<DriverPage> {
       floatingActionButton: Container(
         padding: const EdgeInsets.only(bottom: 16),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween, // Aligns buttons across the screen
           children: [
+            const SizedBox(width: 16), // Space at the start
+
+            // "MyLogs" button
             FloatingActionButton(
               heroTag: 'logs',
               onPressed: () {
@@ -609,9 +615,52 @@ class _DriverPageState extends State<DriverPage> {
                 ],
               ),
             ),
-            const SizedBox(width: 16),
+
+            // If logged in, "MyCar" button
+            if (_vehicleLoggedIn)
+              FloatingActionButton(
+                heroTag: 'car',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const VehicleDataPage()),
+                  );
+                },
+                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.directions_car),
+                    Text(
+                      'MyCar',
+                      style: TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+
+            // If logged in, "Expense" button
+            if (_vehicleLoggedIn)
+              FloatingActionButton(
+                heroTag: 'expense',
+                onPressed: _showExpenseDialog,
+                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.attach_money),
+                    Text(
+                      'Expense',
+                      style: TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
+              ),
+
+            // "Login Vehicle/Logout Vehicle" button with consistent size and alignment
             SizedBox(
-              width: 90, // Making only the button wider
+              width: 90, // Adjusted width for consistent button size
+              height: 56, // Ensure height matches standard FAB size (56 is default)
               child: FloatingActionButton(
                 heroTag: 'vehicle_action',
                 onPressed: () async {
@@ -666,50 +715,13 @@ class _DriverPageState extends State<DriverPage> {
                 ),
               ),
             ),
-            const SizedBox(width: 16),
-            // Show "MyCar" button only when logged into a car
-            if (_vehicleLoggedIn)
-              FloatingActionButton(
-                heroTag: 'car',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const VehicleDataPage()),
-                  );
-                },
-                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.directions_car),
-                    Text(
-                      'MyCar',
-                      style: TextStyle(fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(width: 16),
-            if (_vehicleLoggedIn)
-              FloatingActionButton(
-                heroTag: 'expense',
-                onPressed: _showExpenseDialog,
-                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.attach_money),
-                    Text(
-                      'Expense',
-                      style: TextStyle(fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
+
+            const SizedBox(width: 16), // Space at the end
           ],
         ),
       ),
+
+
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }

@@ -104,7 +104,7 @@ class _LogoutPageState extends State<LogoutPage> {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: {
-              'action': 'get-last-km',
+          'action': 'get-last-km',
           'driver_id': driverId.toString(),
           'vehicle_id': vehicleId.toString(),
         },
@@ -116,10 +116,10 @@ class _LogoutPageState extends State<LogoutPage> {
 
         if (data is bool && data == false) {
           setState(() {
-            _lastKm = null;
-            _errorMessage = 'No KM data found for this vehicle.';
+            _lastKm = 0;  // Set to 0 if no data is found
+            _errorMessage = null;  // Clear any previous error messages
           });
-          return false;
+          return true;  // Allow the process to continue
         } else if (data != null && (data is int || int.tryParse(data.toString()) != null)) {
           setState(() {
             _lastKm = int.parse(data.toString());
@@ -145,6 +145,7 @@ class _LogoutPageState extends State<LogoutPage> {
       return false;
     }
   }
+
 
   Future<void> _getImage(int imageNumber) async {
     try {
@@ -422,16 +423,18 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
-    // Compare user input with last KM
-    if (_lastKm != null && int.tryParse(_kmController.text) != null) {
+    // Handle user input KM validation
+    if (int.tryParse(_kmController.text) != null) {
       int userInputKm = int.parse(_kmController.text);
-      if (userInputKm <= _lastKm!) {
+
+      // Allow user input KM to be equal to or greater than last KM
+      if (userInputKm < _lastKm!) {
         showDialog(
           context: context,
           builder: (BuildContext context) {
             return AlertDialog(
               title: const Text('Error'),
-              content: Text('The entered KM must be greater than the last logged KM.\nLast km: $_lastKm'),
+              content: Text('The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
               actions: <Widget>[
                 TextButton(
                   onPressed: () {
@@ -466,7 +469,6 @@ class _LogoutPageState extends State<LogoutPage> {
       },
     );
 
-
     _hideLoggingOutDialog(); // Hide logging out dialog
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove('vehicleId');
@@ -483,6 +485,7 @@ class _LogoutPageState extends State<LogoutPage> {
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
