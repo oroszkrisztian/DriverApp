@@ -127,7 +127,7 @@ class _DriverPageState extends State<DriverPage> {
   Future<VehicleData> fetchVehicleData() async {
     try {
       final response = await http.post(
-        Uri.parse('https://greenfleet.ro/flatter/functions1.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },

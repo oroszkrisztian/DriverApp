@@ -38,11 +38,11 @@ class _LogoutPageState extends State<LogoutPage> {
   final _kmController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
 
-  File? _image1;
-  File? _image2;
-  File? _image3;
-  File? _image4;
-  File? _image5;
+  File? _image6;
+  File? _image7;
+  File? _image8;
+  File? _image9;
+  File? _image10;
 
   Car? _selectedCar;
   bool _isLoading = true;
@@ -58,7 +58,7 @@ class _LogoutPageState extends State<LogoutPage> {
   Future<void> getCarDetails() async {
     try {
       final response = await http.post(
-        Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },
@@ -99,7 +99,7 @@ class _LogoutPageState extends State<LogoutPage> {
   Future<bool> getLastKm(int driverId, int vehicleId) async {
     try {
       final response = await http.post(
-        Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },
@@ -155,19 +155,19 @@ class _LogoutPageState extends State<LogoutPage> {
         setState(() {
           switch (imageNumber) {
             case 1:
-              _image1 = File(pickedFile.path);
+              _image6 = File(pickedFile.path);
               break;
             case 2:
-              _image2 = File(pickedFile.path);
+              _image7 = File(pickedFile.path);
               break;
             case 3:
-              _image3 = File(pickedFile.path);
+              _image8 = File(pickedFile.path);
               break;
             case 4:
-              _image4 = File(pickedFile.path);
+              _image9 = File(pickedFile.path);
               break;
             case 5:
-              _image5 = File(pickedFile.path);
+              _image10 = File(pickedFile.path);
               break;
           }
         });
@@ -370,7 +370,7 @@ class _LogoutPageState extends State<LogoutPage> {
     }
 
     // Check if all images have been taken
-    if (_image1 == null || _image2 == null || _image3 == null || _image4 == null || _image5 == null) {
+    if (_image6 == null || _image7 == null || _image8 == null || _image9 == null || _image10 == null) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -391,11 +391,11 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
-    Globals.image1 = _image1;
-    Globals.image2 = _image2;
-    Globals.image3 = _image3;
-    Globals.image4 = _image4;
-    Globals.image5 = _image5;
+    Globals.image1 = _image6;
+    Globals.image2 = _image7;
+    Globals.image3 = _image8;
+    Globals.image4 = _image9;
+    Globals.image5 = _image10;
     Globals.kmValue = _kmController.text;
 
     int? userID = Globals.userId;
@@ -593,23 +593,23 @@ class _LogoutPageState extends State<LogoutPage> {
                 ),
               ),
               const SizedBox(height: 20),
-              _buildImageInput(1, _image1),
+              _buildImageInput(1, _image6),
               const SizedBox(height: 20),
               Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildImageInput(2, _image2),
-                      _buildImageInput(3, _image3),
+                      _buildImageInput(2, _image7),
+                      _buildImageInput(3, _image8),
                     ],
                   ),
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildImageInput(4, _image4),
-                      _buildImageInput(5, _image5),
+                      _buildImageInput(4, _image9),
+                      _buildImageInput(5, _image10),
                     ],
                   ),
                 ],

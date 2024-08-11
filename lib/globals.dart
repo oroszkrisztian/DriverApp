@@ -12,6 +12,11 @@ class Globals {
   static File? image3;
   static File? image4;
   static File? image5;
+  static File? image6;
+  static File? image7;
+  static File? image8;
+  static File? image9;
+  static File? image10;
   static File? image;
 }
 

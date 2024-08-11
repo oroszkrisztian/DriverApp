@@ -95,7 +95,7 @@ class _MyLogPageState extends State<MyLogPage> {
   DateTime? _startDate;
   DateTime? _endDate;
   Vehicle? _selectedVehicle;
-  final String baseUrl = 'https://greenfleet.ro'; // Define your base URL here
+  final String baseUrl = 'https://vinczefi.com'; // Define your base URL here
   int? _selectedCarId;
   bool _isLoading = false;
 
@@ -111,7 +111,7 @@ class _MyLogPageState extends State<MyLogPage> {
     });
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/flatter/functions.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },
@@ -162,7 +162,7 @@ class _MyLogPageState extends State<MyLogPage> {
 
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/flatter/functions.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },

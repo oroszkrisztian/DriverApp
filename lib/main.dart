@@ -60,7 +60,7 @@ Future<void> uploadImages(Map<String, dynamic>? inputData) async {
 
   var request = http.MultipartRequest(
     'POST',
-    Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+    Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
   );
 
   request.fields['action'] = 'photo-upload';
@@ -96,7 +96,7 @@ Future<void> uploadExpense(Map<String, dynamic>? inputData) async {
 
   var request = http.MultipartRequest(
     'POST',
-    Uri.parse('https://greenfleet.ro/flatter/functions1.php'),
+    Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
   );
 
   request.fields['action'] = 'vehicle-expense';
@@ -129,7 +129,7 @@ Future<void> loginVehicle() async {
   try {
     var request = http.MultipartRequest(
       'POST',
-      Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
     );
 
     request.fields['action'] = 'vehicle-login';
@@ -249,7 +249,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
 
     final response = await http.post(
-      Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
       headers: <String, String>{
         'Content-Type': 'application/x-www-form-urlencoded',
       },

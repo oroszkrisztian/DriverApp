@@ -64,7 +64,7 @@ class _ExpenseLogPageState extends State<ExpenseLogPage> {
   String _selectedType = 'All';
   DateTime? _startDate;
   DateTime? _endDate;
-  final String baseUrl = 'https://greenfleet.ro'; // Define your base URL here
+  final String baseUrl = 'https://vinczefi.com'; // Define your base URL here
 
   @override
   void initState() {
@@ -75,7 +75,7 @@ class _ExpenseLogPageState extends State<ExpenseLogPage> {
   Future<void> _fetchExpenseData() async {
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/flatter/functions1.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },

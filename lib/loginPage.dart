@@ -60,7 +60,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> getCars() async {
     try {
       final response = await http.post(
-        Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },
@@ -94,7 +94,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<bool> getLastKm(int driverId, int vehicleId) async {
     try {
       final response = await http.post(
-        Uri.parse('https://greenfleet.ro/flatter/functions.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },
