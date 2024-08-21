@@ -68,6 +68,12 @@ Future<void> uploadImages(Map<String, dynamic>? inputData) async {
   request.fields['vehicle'] = inputData['vehicleID'] ?? '';
   request.fields['km'] = inputData['km'] ?? '';
 
+  // Print the fields to the console
+  print('Action: ${request.fields['action']}');
+  print('Driver ID: ${request.fields['driver']}');
+  print('Vehicle ID: ${request.fields['vehicle']}');
+  print('KM: ${request.fields['km']}');
+
   for (int i = 1; i <= 5; i++) {
     String? imagePath = inputData['image$i'];
     if (imagePath != null && imagePath.isNotEmpty) {
@@ -172,12 +178,22 @@ Future<void> _loadImagesFromPrefs() async {
   String? imagePath3 = prefs.getString('image3');
   String? imagePath4 = prefs.getString('image4');
   String? imagePath5 = prefs.getString('image5');
+  String? imagePath6 = prefs.getString('image6');
+  String? imagePath7 = prefs.getString('image7');
+  String? imagePath8 = prefs.getString('image8');
+  String? imagePath9 = prefs.getString('image9');
+  String? imagePath10 = prefs.getString('image10');
 
   if (imagePath1 != null) Globals.image1 = File(imagePath1);
   if (imagePath2 != null) Globals.image2 = File(imagePath2);
   if (imagePath3 != null) Globals.image3 = File(imagePath3);
   if (imagePath4 != null) Globals.image4 = File(imagePath4);
   if (imagePath5 != null) Globals.image5 = File(imagePath5);
+  if (imagePath6 != null) Globals.image1 = File(imagePath6);
+  if (imagePath7 != null) Globals.image2 = File(imagePath7);
+  if (imagePath8 != null) Globals.image3 = File(imagePath8);
+  if (imagePath9 != null) Globals.image4 = File(imagePath9);
+  if (imagePath10 != null) Globals.image5 = File(imagePath10);
 }
 
 class MyApp extends StatelessWidget {
