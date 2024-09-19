@@ -84,8 +84,7 @@ class DriverPage extends StatefulWidget {
 class _DriverPageState extends State<DriverPage> {
   Future<VehicleData>? _vehicleDataFuture;
   VehicleData? _selectedCar;
-  Timer? _timer;
-  bool _dataLoaded = false;
+  //bool _dataLoaded = false;
   bool _isLoggedIn = false;
   bool _vehicleLoggedIn = false;
 
@@ -106,22 +105,7 @@ class _DriverPageState extends State<DriverPage> {
 
     if (isLoggedIn && Globals.vehicleID != null) {
       _vehicleDataFuture = fetchVehicleData();
-      _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
-        if (!_dataLoaded) {
-          setState(() {
-            _vehicleDataFuture = fetchVehicleData();
-          });
-        } else {
-          _timer?.cancel();
-        }
-      });
     }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
   }
 
   Future<VehicleData> fetchVehicleData() async {
@@ -142,15 +126,20 @@ class _DriverPageState extends State<DriverPage> {
           throw Exception('Empty response from server');
         }
 
-        // Print the response body to the console
         print('Response body: ${response.body}');
 
         var jsonData = jsonDecode(response.body);
-        _dataLoaded = true;
+
+        // Check if the response contains an error
+        if (jsonData.containsKey('error')) {
+          throw Exception('Server error: ${jsonData['error']}');
+        }
+
+        // If no error, proceed with parsing the data
+        //_dataLoaded = true;
         return VehicleData.fromJson(jsonData);
       } else {
-        throw Exception(
-            'Failed to load vehicle data: ${response.statusCode} - ${response.body}');
+        throw Exception('Failed to load vehicle data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       throw Exception('Failed to load vehicle data: $e');
@@ -213,7 +202,7 @@ class _DriverPageState extends State<DriverPage> {
                   children: [
                     ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxHeight: constraints.maxHeight * 0.8, // Adjust the value as needed
+                        maxHeight: constraints.maxHeight * 0.8,
                       ),
                       child: Image.file(
                         image,
@@ -224,8 +213,8 @@ class _DriverPageState extends State<DriverPage> {
                     ElevatedButton(
                       onPressed: () => Navigator.of(context).pop(),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color.fromARGB(255, 101, 204, 82), // Green background
-                        foregroundColor: Colors.black, // Black text
+                        backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                        foregroundColor: Colors.black,
                       ),
                       child: const Text('Close'),
                     ),
@@ -273,7 +262,7 @@ class _DriverPageState extends State<DriverPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const ExpenseLogPage()),
-                  );// Just close the dialog for now
+                  );
                 },
                 backgroundColor: const Color.fromARGB(255, 101, 204, 82),
                 child: const Column(
