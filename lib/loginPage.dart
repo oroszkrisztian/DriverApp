@@ -9,7 +9,6 @@ import 'dart:convert';
 import 'globals.dart';
 import 'package:workmanager/workmanager.dart';
 
-
 import 'main.dart';
 
 class Car {
@@ -112,11 +111,12 @@ class _LoginPageState extends State<LoginPage> {
 
         if (data is bool && data == false) {
           setState(() {
-            _lastKm = 0;  // Set to 0 if no data is found for the vehicle
-            _errorMessage = null;  // Clear any previous error messages
+            _lastKm = 0; // Set to 0 if no data is found for the vehicle
+            _errorMessage = null; // Clear any previous error messages
           });
-          return true;  // Allow the process to continue since we handle the default value
-        } else if (data != null && (data is int || int.tryParse(data.toString()) != null)) {
+          return true; // Allow the process to continue since we handle the default value
+        } else if (data != null &&
+            (data is int || int.tryParse(data.toString()) != null)) {
           setState(() {
             _lastKm = int.parse(data.toString());
             _errorMessage = null;
@@ -142,10 +142,10 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-
   Future<void> _getImage(int imageNumber) async {
     try {
-      final pickedFile = await _imagePicker.pickImage(source: ImageSource.camera);
+      final pickedFile =
+          await _imagePicker.pickImage(source: ImageSource.camera);
 
       if (pickedFile != null) {
         setState(() {
@@ -245,7 +245,7 @@ class _LoginPageState extends State<LoginPage> {
         label = 'Rear Right';
         break;
       case 6:
-        label = 'Parcurs';
+        label = 'LogBook';
         break;
       default:
         label = 'Unknown';
@@ -292,7 +292,8 @@ class _LoginPageState extends State<LoginPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                side: const BorderSide(
+                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8.0),
                 ),
@@ -305,7 +306,8 @@ class _LoginPageState extends State<LoginPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                side: const BorderSide(
+                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8.0),
                 ),
@@ -370,7 +372,12 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    if (_image1 == null || _image2 == null || _image3 == null || _image4 == null || _image5 == null || parcursIn == null) {
+    if (_image1 == null ||
+        _image2 == null ||
+        _image3 == null ||
+        _image4 == null ||
+        _image5 == null ||
+        parcursIn == null) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -414,7 +421,7 @@ class _LoginPageState extends State<LoginPage> {
 
     // Check if last KM is null, set to 0 if it is
     if (_lastKm == null) {
-      _lastKm = 0;  // Set to 0 if no previous KM data exists
+      _lastKm = 0; // Set to 0 if no previous KM data exists
     }
 
     if (int.tryParse(_kmController.text) != null) {
@@ -427,7 +434,8 @@ class _LoginPageState extends State<LoginPage> {
           builder: (BuildContext context) {
             return AlertDialog(
               title: const Text('Error'),
-              content: Text('The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
+              content: Text(
+                  'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
               actions: <Widget>[
                 TextButton(
                   onPressed: () {
@@ -458,7 +466,7 @@ class _LoginPageState extends State<LoginPage> {
         'image3': Globals.image3?.path,
         'image4': Globals.image4?.path,
         'image5': Globals.image5?.path,
-        'parcursIn' : Globals.parcursIn?.path
+        'parcursIn': Globals.parcursIn?.path
       },
     );
 
@@ -472,7 +480,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -484,163 +491,211 @@ class _LoginPageState extends State<LoginPage> {
       ),
       body: _isLoading
           ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(
-                Color.fromARGB(255, 101, 204, 82), // Green color
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('Fetching vehicles...')
-          ],
-        ),
-      )
-          : _errorMessage != null
-          ? Center(
-        child: Text(_errorMessage!),
-      )
-          : SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8.0),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.6),
-                      spreadRadius: 5,
-                      blurRadius: 7,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Column(
-                    children: [
-                      DropdownButtonFormField<int>(
-                        value: _selectedCarId,
-                        items: _cars.map((Car car) {
-                          return DropdownMenuItem<int>(
-                            value: car.id,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Text(
-                                '${car.name} - ${car.numberPlate}',
-                                style: const TextStyle(color: Colors.black),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (newValue) {
-                          setState(() {
-                            _selectedCarId = newValue;
-                          });
-                        },
-                        decoration: InputDecoration(
-                          labelText: 'Car',
-                          labelStyle: const TextStyle(color: Colors.black),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: Color.fromARGB(255, 101, 204, 82),
-                            ),
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: Color.fromARGB(255, 101, 204, 82),
-                            ),
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                        ),
-                        style: const TextStyle(color: Colors.black),
-                        dropdownColor: Colors.white,
-                        icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
-                        isExpanded: true,
-                        iconSize: 30.0,
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _kmController,
-                        cursorColor: const Color.fromARGB(255, 101, 204, 82),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: <TextInputFormatter>[
-                          FilteringTextInputFormatter.digitsOnly
-                        ],
-                        decoration: InputDecoration(
-                          labelText: 'KM',
-                          labelStyle: const TextStyle(color: Colors.black),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: Color.fromARGB(255, 101, 204, 82),
-                            ),
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: Color.fromARGB(255, 101, 204, 82),
-                            ),
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                        ),
-                        style: const TextStyle(color: Colors.black),
-                      ),
-                      const SizedBox(height: 16,),
-                      _buildImageInput(6, parcursIn),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              _buildImageInput(1, _image1),
-              const SizedBox(height: 20),
-              Column(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildImageInput(2, _image2),
-                      _buildImageInput(3, _image3),
-                    ],
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color.fromARGB(255, 101, 204, 82), // Green color
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildImageInput(4, _image4),
-                      _buildImageInput(5, _image5),
-                    ],
-                  ),
+                  const SizedBox(height: 16),
+                  const Text('Fetching vehicles...')
                 ],
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: 150,
-                height: 80,
-                child: ElevatedButton(
-                  onPressed: _submitData,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                    padding: const EdgeInsets.symmetric(vertical: 20.0),
-                    textStyle: const TextStyle(
-                      fontSize: 20,
+            )
+          : _errorMessage != null
+              ? Center(
+                  child: Text(_errorMessage!),
+                )
+              : SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8.0),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.6),
+                                spreadRadius: 5,
+                                blurRadius: 7,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              children: [
+                                DropdownButtonFormField<int>(
+                                  value: _selectedCarId,
+                                  items: _cars.map((Car car) {
+                                    return DropdownMenuItem<int>(
+                                      value: car.id,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8.0),
+                                        child: Text(
+                                          '${car.name} - ${car.numberPlate}',
+                                          style: const TextStyle(
+                                              color: Colors.black),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (newValue) {
+                                    setState(() {
+                                      _selectedCarId = newValue;
+                                    });
+                                  },
+                                  decoration: InputDecoration(
+                                    labelText: 'Car',
+                                    labelStyle:
+                                        const TextStyle(color: Colors.black),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderSide: const BorderSide(
+                                        color:
+                                            Color.fromARGB(255, 101, 204, 82),
+                                      ),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderSide: const BorderSide(
+                                        color:
+                                            Color.fromARGB(255, 101, 204, 82),
+                                      ),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
+                                  ),
+                                  style: const TextStyle(color: Colors.black),
+                                  dropdownColor: Colors.white,
+                                  icon: const Icon(Icons.arrow_drop_down,
+                                      color: Colors.black),
+                                  isExpanded: true,
+                                  iconSize: 30.0,
+                                ),
+                                const SizedBox(height: 16),
+                                TextField(
+                                  controller: _kmController,
+                                  cursorColor:
+                                      const Color.fromARGB(255, 101, 204, 82),
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: <TextInputFormatter>[
+                                    FilteringTextInputFormatter.digitsOnly
+                                  ],
+                                  decoration: InputDecoration(
+                                    labelText: 'KM',
+                                    labelStyle:
+                                        const TextStyle(color: Colors.black),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderSide: const BorderSide(
+                                        color:
+                                            Color.fromARGB(255, 101, 204, 82),
+                                      ),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderSide: const BorderSide(
+                                        color:
+                                            Color.fromARGB(255, 101, 204, 82),
+                                      ),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
+                                  ),
+                                  style: const TextStyle(color: Colors.black),
+                                ),
+                                const SizedBox(
+                                  height: 16,
+                                ),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImageInput(1, _image1),
+                                    _buildImageInput(6, parcursIn),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8.0),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.6),
+                                spreadRadius: 5,
+                                blurRadius: 7,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              children: [
+                                const Text(
+                                    'Car Photoes',
+                                    style:  TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold
+                                    ),
+                                ),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImageInput(2, _image2),
+                                    _buildImageInput(3, _image3),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImageInput(4, _image4),
+                                    _buildImageInput(5, _image5),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: 150,
+                          height: 80,
+                          child: ElevatedButton(
+                            onPressed: _submitData,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  const Color.fromARGB(255, 101, 204, 82),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 20.0),
+                              textStyle: const TextStyle(
+                                fontSize: 20,
+                              ),
+                            ),
+                            child: const Text(
+                              'Login',
+                              style: TextStyle(color: Colors.black),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: const Text(
-                    'Login',
-                    style: TextStyle(color: Colors.black),
-                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
