@@ -44,6 +44,7 @@ class _LoginPageState extends State<LoginPage> {
   File? _image3;
   File? _image4;
   File? _image5;
+  File? parcursIn;
 
   int? _selectedCarId;
   List<Car> _cars = [];
@@ -164,6 +165,8 @@ class _LoginPageState extends State<LoginPage> {
             case 5:
               _image5 = File(pickedFile.path);
               break;
+            case 6:
+              parcursIn = File(pickedFile.path);
           }
         });
       } else {
@@ -240,6 +243,9 @@ class _LoginPageState extends State<LoginPage> {
         break;
       case 5:
         label = 'Rear Right';
+        break;
+      case 6:
+        label = 'Parcurs';
         break;
       default:
         label = 'Unknown';
@@ -364,7 +370,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    if (_image1 == null || _image2 == null || _image3 == null || _image4 == null || _image5 == null) {
+    if (_image1 == null || _image2 == null || _image3 == null || _image4 == null || _image5 == null || parcursIn == null) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -390,6 +396,7 @@ class _LoginPageState extends State<LoginPage> {
     Globals.image3 = _image3;
     Globals.image4 = _image4;
     Globals.image5 = _image5;
+    Globals.parcursIn = parcursIn;
     Globals.vehicleID = _selectedCarId;
     Globals.kmValue = _kmController.text;
     int? userID = Globals.userId;
@@ -403,6 +410,7 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString('image3', _image3!.path);
     await prefs.setString('image4', _image4!.path);
     await prefs.setString('image5', _image5!.path);
+    await prefs.setString('parcursIn', parcursIn!.path);
 
     // Check if last KM is null, set to 0 if it is
     if (_lastKm == null) {
@@ -449,7 +457,8 @@ class _LoginPageState extends State<LoginPage> {
         'image2': Globals.image2?.path,
         'image3': Globals.image3?.path,
         'image4': Globals.image4?.path,
-        'image5': Globals.image5?.path
+        'image5': Globals.image5?.path,
+        'parcursIn' : Globals.parcursIn?.path
       },
     );
 
@@ -581,6 +590,8 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         style: const TextStyle(color: Colors.black),
                       ),
+                      const SizedBox(height: 16,),
+                      _buildImageInput(6, parcursIn),
                     ],
                   ),
                 ),

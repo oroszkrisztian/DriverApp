@@ -74,10 +74,11 @@ Future<void> uploadImages(Map<String, dynamic>? inputData) async {
   print('Vehicle ID: ${request.fields['vehicle']}');
   print('KM: ${request.fields['km']}');
 
-  for (int i = 1; i <= 5; i++) {
+  for (int i = 1; i <= 6; i++) {
     String? imagePath = inputData['image$i'];
     if (imagePath != null && imagePath.isNotEmpty) {
-      request.files.add(await http.MultipartFile.fromPath('photo$i', imagePath));
+      request.files
+          .add(await http.MultipartFile.fromPath('photo$i', imagePath));
     }
   }
 
@@ -123,7 +124,8 @@ Future<void> uploadExpense(Map<String, dynamic>? inputData) async {
     if (response.statusCode == 200) {
       print('Expense uploaded successfully in the background');
     } else {
-      print('Failed to upload expense in the background: ${response.statusCode}');
+      print(
+          'Failed to upload expense in the background: ${response.statusCode}');
     }
   } catch (e) {
     print('Error uploading expense in background: $e');
@@ -183,17 +185,19 @@ Future<void> _loadImagesFromPrefs() async {
   String? imagePath8 = prefs.getString('image8');
   String? imagePath9 = prefs.getString('image9');
   String? imagePath10 = prefs.getString('image10');
+  String? imagePathParcursIn = prefs.getString('parcursIn');
 
   if (imagePath1 != null) Globals.image1 = File(imagePath1);
   if (imagePath2 != null) Globals.image2 = File(imagePath2);
   if (imagePath3 != null) Globals.image3 = File(imagePath3);
   if (imagePath4 != null) Globals.image4 = File(imagePath4);
   if (imagePath5 != null) Globals.image5 = File(imagePath5);
-  if (imagePath6 != null) Globals.image1 = File(imagePath6);
-  if (imagePath7 != null) Globals.image2 = File(imagePath7);
-  if (imagePath8 != null) Globals.image3 = File(imagePath8);
-  if (imagePath9 != null) Globals.image4 = File(imagePath9);
-  if (imagePath10 != null) Globals.image5 = File(imagePath10);
+  if (imagePath6 != null) Globals.image6 = File(imagePath6);
+  if (imagePath7 != null) Globals.image7 = File(imagePath7);
+  if (imagePath8 != null) Globals.image8 = File(imagePath8);
+  if (imagePath9 != null) Globals.image9 = File(imagePath9);
+  if (imagePath10 != null) Globals.image10 = File(imagePath10);
+  if (imagePathParcursIn != null) Globals.parcursIn = File(imagePathParcursIn);
 }
 
 class MyApp extends StatelessWidget {

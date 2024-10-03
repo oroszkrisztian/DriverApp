@@ -43,6 +43,7 @@ class _LogoutPageState extends State<LogoutPage> {
   File? _image8;
   File? _image9;
   File? _image10;
+  File? parcursOut;
 
   Car? _selectedCar;
   bool _isLoading = true;
@@ -64,7 +65,7 @@ class _LogoutPageState extends State<LogoutPage> {
         },
         body: {
           'action': 'get-vehicle-info',
-          'vehicle':Globals.vehicleID.toString(),
+          'vehicle': Globals.vehicleID.toString(),
         },
       );
 
@@ -95,7 +96,6 @@ class _LogoutPageState extends State<LogoutPage> {
     }
   }
 
-
   Future<bool> getLastKm(int driverId, int vehicleId) async {
     try {
       final response = await http.post(
@@ -116,11 +116,12 @@ class _LogoutPageState extends State<LogoutPage> {
 
         if (data is bool && data == false) {
           setState(() {
-            _lastKm = 0;  // Set to 0 if no data is found
-            _errorMessage = null;  // Clear any previous error messages
+            _lastKm = 0; // Set to 0 if no data is found
+            _errorMessage = null; // Clear any previous error messages
           });
-          return true;  // Allow the process to continue
-        } else if (data != null && (data is int || int.tryParse(data.toString()) != null)) {
+          return true; // Allow the process to continue
+        } else if (data != null &&
+            (data is int || int.tryParse(data.toString()) != null)) {
           setState(() {
             _lastKm = int.parse(data.toString());
             _errorMessage = null;
@@ -146,10 +147,10 @@ class _LogoutPageState extends State<LogoutPage> {
     }
   }
 
-
   Future<void> _getImage(int imageNumber) async {
     try {
-      final pickedFile = await _imagePicker.pickImage(source: ImageSource.camera);
+      final pickedFile =
+          await _imagePicker.pickImage(source: ImageSource.camera);
 
       if (pickedFile != null) {
         setState(() {
@@ -169,6 +170,8 @@ class _LogoutPageState extends State<LogoutPage> {
             case 5:
               _image10 = File(pickedFile.path);
               break;
+            case 6:
+              parcursOut = File(pickedFile.path);
           }
         });
       } else {
@@ -246,6 +249,9 @@ class _LogoutPageState extends State<LogoutPage> {
       case 5:
         label = 'Rear Right';
         break;
+      case 6:
+        label = 'Parcurs';
+        break;
       default:
         label = 'Unknown';
     }
@@ -291,7 +297,8 @@ class _LogoutPageState extends State<LogoutPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                side: const BorderSide(
+                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8.0),
                 ),
@@ -304,7 +311,8 @@ class _LogoutPageState extends State<LogoutPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                side: const BorderSide(
+                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8.0),
                 ),
@@ -370,7 +378,12 @@ class _LogoutPageState extends State<LogoutPage> {
     }
 
     // Check if all images have been taken
-    if (_image6 == null || _image7 == null || _image8 == null || _image9 == null || _image10 == null) {
+    if (_image6 == null ||
+        _image7 == null ||
+        _image8 == null ||
+        _image9 == null ||
+        _image10 == null ||
+        parcursOut == null) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -396,6 +409,7 @@ class _LogoutPageState extends State<LogoutPage> {
     Globals.image3 = _image8;
     Globals.image4 = _image9;
     Globals.image5 = _image10;
+    Globals.parcursOut = parcursOut;
     Globals.kmValue = _kmController.text;
 
     int? userID = Globals.userId;
@@ -434,7 +448,8 @@ class _LogoutPageState extends State<LogoutPage> {
           builder: (BuildContext context) {
             return AlertDialog(
               title: const Text('Error'),
-              content: Text('The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
+              content: Text(
+                  'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
               actions: <Widget>[
                 TextButton(
                   onPressed: () {
@@ -461,11 +476,12 @@ class _LogoutPageState extends State<LogoutPage> {
         'userId': Globals.userId.toString(),
         'vehicleID': Globals.vehicleID.toString(),
         'km': _kmController.text,
-        'image1': Globals.image1?.path,
-        'image2': Globals.image2?.path,
-        'image3': Globals.image3?.path,
-        'image4': Globals.image4?.path,
-        'image5': Globals.image5?.path
+        'image6': Globals.image6?.path,
+        'image7': Globals.image7?.path,
+        'image8': Globals.image8?.path,
+        'image9': Globals.image9?.path,
+        'image10': Globals.image10?.path,
+        'parcursOut': Globals.parcursOut?.path
       },
     );
 
@@ -486,7 +502,6 @@ class _LogoutPageState extends State<LogoutPage> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -498,145 +513,160 @@ class _LogoutPageState extends State<LogoutPage> {
       ),
       body: _isLoading
           ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(
-                Color.fromARGB(255, 101, 204, 82), // Green color
-              ),
-            ),
-            const SizedBox(width: 16),
-            const Text("Fetching vehicle details..."),
-          ],
-        ),
-      )
-          : _errorMessage != null
-          ? Center(
-        child: Text(_errorMessage!),
-      )
-          : SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              if (_selectedCar != null) ...[
-                Container(
-                  margin: const EdgeInsets.symmetric(vertical: 8.0),
-                  padding: const EdgeInsets.all(16.0),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10.0),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.6),
-                        spreadRadius: 5,
-                        blurRadius: 7,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        '${_selectedCar!.name} - ${_selectedCar!.numberPlate}',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8.0),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.6),
-                      spreadRadius: 5,
-                      blurRadius: 7,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: TextField(
-                    controller: _kmController,
-                    cursorColor: const Color.fromARGB(255, 101, 204, 82),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: <TextInputFormatter>[
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
-                    decoration: InputDecoration(
-                      labelText: 'KM',
-                      labelStyle: const TextStyle(color: Colors.black),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: const BorderSide(
-                          color: Color.fromARGB(255, 101, 204, 82),
-                        ),
-                        borderRadius: BorderRadius.circular(8.0),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: const BorderSide(
-                          color: Color.fromARGB(255, 101, 204, 82),
-                        ),
-                        borderRadius: BorderRadius.circular(8.0),
-                      ),
-                    ),
-                    style: const TextStyle(color: Colors.black),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              _buildImageInput(1, _image6),
-              const SizedBox(height: 20),
-              Column(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildImageInput(2, _image7),
-                      _buildImageInput(3, _image8),
-                    ],
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color.fromARGB(255, 101, 204, 82), // Green color
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildImageInput(4, _image9),
-                      _buildImageInput(5, _image10),
-                    ],
-                  ),
+                  const SizedBox(width: 16),
+                  const Text("Fetching vehicle details..."),
                 ],
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: 150,
-                height: 80,
-                child: ElevatedButton(
-                  onPressed: _submitData,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                    padding: const EdgeInsets.symmetric(vertical: 20.0),
-                    textStyle: const TextStyle(
-                      fontSize: 20,
+            )
+          : _errorMessage != null
+              ? Center(
+                  child: Text(_errorMessage!),
+                )
+              : SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        if (_selectedCar != null) ...[
+                          Container(
+                            margin: const EdgeInsets.symmetric(vertical: 8.0),
+                            padding: const EdgeInsets.all(16.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10.0),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.6),
+                                  spreadRadius: 5,
+                                  blurRadius: 7,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  '${_selectedCar!.name} - ${_selectedCar!.numberPlate}',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8.0),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.6),
+                                spreadRadius: 5,
+                                blurRadius: 7,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Column(
+                                children: [
+                                  TextField(
+                                    controller: _kmController,
+                                    cursorColor:
+                                        const Color.fromARGB(255, 101, 204, 82),
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: <TextInputFormatter>[
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: InputDecoration(
+                                      labelText: 'KM',
+                                      labelStyle:
+                                          const TextStyle(color: Colors.black),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderSide: const BorderSide(
+                                          color:
+                                              Color.fromARGB(255, 101, 204, 82),
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(8.0),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderSide: const BorderSide(
+                                          color:
+                                              Color.fromARGB(255, 101, 204, 82),
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(8.0),
+                                      ),
+                                    ),
+                                    style: const TextStyle(color: Colors.black),
+                                  ),
+                                  const SizedBox(
+                                    height: 16,
+                                  ),
+                                  _buildImageInput(6, parcursOut),
+                                ],
+                              )),
+                        ),
+                        const SizedBox(height: 20),
+                        _buildImageInput(1, _image6),
+                        const SizedBox(height: 20),
+                        Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _buildImageInput(2, _image7),
+                                _buildImageInput(3, _image8),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _buildImageInput(4, _image9),
+                                _buildImageInput(5, _image10),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: 150,
+                          height: 80,
+                          child: ElevatedButton(
+                            onPressed: _submitData,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  const Color.fromARGB(255, 101, 204, 82),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 20.0),
+                              textStyle: const TextStyle(
+                                fontSize: 20,
+                              ),
+                            ),
+                            child: const Text(
+                              'Logout',
+                              style: TextStyle(color: Colors.black),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: const Text(
-                    'Logout',
-                    style: TextStyle(color: Colors.black),
-                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 

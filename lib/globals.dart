@@ -18,5 +18,7 @@ class Globals {
   static File? image9;
   static File? image10;
   static File? image;
+  static File? parcursIn;
+  static File? parcursOut;
 }
 
