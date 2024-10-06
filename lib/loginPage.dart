@@ -466,7 +466,7 @@ class _LoginPageState extends State<LoginPage> {
         'image3': Globals.image3?.path,
         'image4': Globals.image4?.path,
         'image5': Globals.image5?.path,
-        'parcursIn': Globals.parcursIn?.path
+        'image6': Globals.parcursIn?.path
       },
     );
 

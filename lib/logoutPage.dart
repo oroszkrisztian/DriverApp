@@ -404,11 +404,11 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
-    Globals.image1 = _image6;
-    Globals.image2 = _image7;
-    Globals.image3 = _image8;
-    Globals.image4 = _image9;
-    Globals.image5 = _image10;
+    Globals.image6 = _image6;
+    Globals.image7 = _image7;
+    Globals.image8 = _image8;
+    Globals.image9 = _image9;
+    Globals.image10 = _image10;
     Globals.parcursOut = parcursOut;
     Globals.kmValue = _kmController.text;
 
@@ -476,12 +476,12 @@ class _LogoutPageState extends State<LogoutPage> {
         'userId': Globals.userId.toString(),
         'vehicleID': Globals.vehicleID.toString(),
         'km': _kmController.text,
-        'image6': Globals.image6?.path,
-        'image7': Globals.image7?.path,
-        'image8': Globals.image8?.path,
-        'image9': Globals.image9?.path,
-        'image10': Globals.image10?.path,
-        'parcursOut': Globals.parcursOut?.path
+        'image1': Globals.image6?.path,
+        'image2': Globals.image7?.path,
+        'image3': Globals.image8?.path,
+        'image4': Globals.image9?.path,
+        'image5': Globals.image10?.path,
+        'image6': Globals.parcursOut?.path
       },
     );
 
