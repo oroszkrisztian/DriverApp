@@ -230,7 +230,7 @@ class _LoginPageState extends State<LoginPage> {
     String label;
     switch (imageNumber) {
       case 1:
-        label = 'Dashboard';
+        label = 'Dash/Műszerfal';
         break;
       case 2:
         label = 'Front left';
@@ -245,15 +245,18 @@ class _LoginPageState extends State<LoginPage> {
         label = 'Rear Right';
         break;
       case 6:
-        label = 'LogBook';
+        label = 'LogBook/Menetlevél';
         break;
       default:
         label = 'Unknown';
     }
 
+    // Use MediaQuery to get the screen width
+    final double screenWidth = MediaQuery.of(context).size.width;
+
     return Container(
       height: 150,
-      width: 160,
+      width: screenWidth * 0.4,
       decoration: BoxDecoration(
         color: image != null
             ? const Color.fromARGB(255, 101, 204, 82)
@@ -641,12 +644,25 @@ class _LoginPageState extends State<LoginPage> {
                             padding: const EdgeInsets.all(8.0),
                             child: Column(
                               children: [
-                                const Text(
-                                    'Car Photoes',
-                                    style:  TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold
+                                const Row(
+                                  mainAxisAlignment: MainAxisAlignment
+                                      .center, // Center aligns the icon and text
+                                  children: [
+                                    Icon(
+                                      Icons.directions_car,
+                                      size: 24,
                                     ),
+                                    SizedBox(
+                                        width:
+                                            8), // Space between the icon and the text
+                                    Text(
+                                      'Photos',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 16),
                                 Row(

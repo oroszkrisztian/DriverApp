@@ -235,7 +235,7 @@ class _LogoutPageState extends State<LogoutPage> {
     String label;
     switch (imageNumber) {
       case 1:
-        label = 'Dashboard';
+        label = 'Dash/Műszerfal';
         break;
       case 2:
         label = 'Front left';
@@ -250,15 +250,16 @@ class _LogoutPageState extends State<LogoutPage> {
         label = 'Rear Right';
         break;
       case 6:
-        label = 'Parcurs';
+        label = 'LogBook/Menetlevél';
         break;
       default:
         label = 'Unknown';
     }
-
+    // Use MediaQuery to get the screen width
+    final double screenWidth = MediaQuery.of(context).size.width;
     return Container(
       height: 150,
-      width: 160,
+      width: screenWidth * 0.4,
       decoration: BoxDecoration(
         color: image != null
             ? const Color.fromARGB(255, 101, 204, 82)
@@ -616,31 +617,77 @@ class _LogoutPageState extends State<LogoutPage> {
                                   const SizedBox(
                                     height: 16,
                                   ),
-                                  _buildImageInput(6, parcursOut),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
+                                    children: [
+                                      _buildImageInput(1, _image6),
+                                      _buildImageInput(6, parcursOut),
+                                    ],
+                                  ),
                                 ],
                               )),
                         ),
                         const SizedBox(height: 20),
-                        _buildImageInput(1, _image6),
-                        const SizedBox(height: 20),
-                        Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8.0),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.6),
+                                spreadRadius: 5,
+                                blurRadius: 7,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
                               children: [
-                                _buildImageInput(2, _image7),
-                                _buildImageInput(3, _image8),
+                                const Row(
+                                  mainAxisAlignment: MainAxisAlignment
+                                      .center, // Center aligns the icon and text
+                                  children: [
+                                    Icon(
+                                      Icons.directions_car,
+                                      size: 24,
+                                    ),
+                                    SizedBox(
+                                        width:
+                                            8), // Space between the icon and the text
+                                    Text(
+                                      'Photos',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImageInput(2, _image7),
+                                    _buildImageInput(3, _image8),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImageInput(4, _image9),
+                                    _buildImageInput(5, _image10),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
                               ],
                             ),
-                            const SizedBox(height: 20),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _buildImageInput(4, _image9),
-                                _buildImageInput(5, _image10),
-                              ],
-                            ),
-                          ],
+                          ),
                         ),
                         const SizedBox(height: 16),
                         SizedBox(
