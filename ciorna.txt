@@ -42,19 +42,14 @@ Future<bool> handleImageUpload(Map<String, dynamic>? inputData) async {
 }
 
 // Handling expense upload task
-// Handling expense upload task
 Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
-  // Check connectivity
-  var connectivityResult = await Connectivity().checkConnectivity();
-
-  // If there's no internet connection, do not attempt to upload
-  if (connectivityResult == ConnectivityResult.none) {
-    print('No internet connection. Saving expense locally.');
-    return false; // Indicate failure due to no connectivity
+  try {
+    await uploadExpense(inputData);
+    return Future.value(true);
+  } catch (e) {
+    print('Error in expense upload task: $e');
+    return Future.value(false);
   }
-
-  // Proceed to upload the expense
-  return await uploadExpense(inputData);
 }
 
 // Function to upload images in the background
@@ -101,17 +96,30 @@ Future<void> uploadImages(Map<String, dynamic>? inputData) async {
 }
 
 // Function to upload expenses in the background
-Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
+Future<void> uploadExpense(Map<String, dynamic>? inputData) async {
   if (inputData == null) {
     print("No input data for expense upload");
-    return false; // Indicate failure
+    return;
   }
 
+  // Check connectivity
+  var connectivityResult = await Connectivity().checkConnectivity();
+
+  // If there's no internet connection, save data locally
+  if (connectivityResult == ConnectivityResult.none) {
+    print('No internet connection. Saving expense locally.');
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString("expensesData", jsonEncode(inputData));
+    return; // Exit the function, do not attempt to upload now
+  }
+
+  // If there is an internet connection, proceed to upload the expense
   var request = http.MultipartRequest(
     'POST',
     Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
   );
 
+  // Prepare the request fields
   request.fields['action'] = 'vehicle-expense';
   request.fields['driver'] = inputData['driver'] ?? '';
   request.fields['vehicle'] = inputData['vehicle'] ?? '';
@@ -129,31 +137,28 @@ Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
     var response = await request.send();
     if (response.statusCode == 200) {
       print('Expense uploaded successfully in the background');
-      return true; // Indicate success
+      return;
     } else {
       print(
           'Failed to upload expense in the background: ${response.statusCode}');
-      return false; // Indicate failure
     }
   } catch (e) {
     print('Error uploading expense in background: $e');
-    return false; // Indicate failure
   }
 
   // Save to SharedPreferences if upload fails
-// Indicate failure
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  await prefs.setString("expensesData", jsonEncode(inputData));
 }
 
-Future<void> _uploadSavedExpenses() async {
+Future<void> _sendSavedExpenses() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
   String? expenseData = prefs.getString("expensesData");
 
   if (expenseData != null) {
     print("Attempting to send saved expenses...");
     Map<String, dynamic> inputData = jsonDecode(expenseData);
-
     await uploadExpense(inputData);
-
     // Clear saved expense data after sending
     await prefs.remove("expensesData");
   }
@@ -183,51 +188,31 @@ Future<void> loginVehicle() async {
   }
 }
 
-void _listenForConnectivityChanges() {
-  Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
-    if (result != ConnectivityResult.none) {
-      // If connected to the internet, attempt to send saved expenses
-      _uploadSavedExpenses();
-    }
-  });
-}
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
+  // Check the initial connectivity status
+  await _sendSavedExpenses(); // Send saved expenses on app start
+
   // Listen to connectivity changes
-  _listenForConnectivityChanges();
+  Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+    if (result != ConnectivityResult.none) {
+      // If connected to the internet, attempt to send saved expenses
+      _sendSavedExpenses();
+    }
+  });
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
   bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
   if (isLoggedIn) {
     Globals.userId = int.tryParse(prefs.getString('userId') ?? '');
-    Globals.vehicleID = prefs.getInt('vehicleId');
-    _loadImagesFromPrefs();
-    // Attempt to load and upload expenses
-    String? ExpenseData = prefs.getString("expensesData");
-    if (ExpenseData != null) {
-      Map<String, dynamic> inputData = jsonDecode(ExpenseData);
-      // Schedule a periodic upload task
-      await schedulePeriodicUpload();
-      // Remove data after scheduling
-      await prefs.remove('expensesData');
-    }
+    Globals.vehicleID = prefs.getInt('vehicleId'); // Correctly retrieve as int
+    await _loadImagesFromPrefs();
   }
 
   runApp(MyApp(isLoggedIn: isLoggedIn));
-}
-
-Future<void> schedulePeriodicUpload() async {
-  // Register the periodic task to upload expenses
-  Workmanager().registerPeriodicTask(
-    "uploadExpenseTaskId",
-    uploadExpenseTask,
-    frequency: const Duration(minutes: 15), // Minimum 15 minutes
-    inputData: {}, // If needed, add any required input data here
-  );
 }
 
 // Function to load images from SharedPreferences

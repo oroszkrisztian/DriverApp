@@ -251,75 +251,85 @@ class _LoginPageState extends State<LoginPage> {
         label = 'Unknown';
     }
 
-    // Use MediaQuery to get the screen width
-    final double screenWidth = MediaQuery.of(context).size.width;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double maxWidth = constraints.maxWidth;
+        final double maxHeight = constraints.maxHeight;
 
-    return Container(
-      height: 150,
-      width: screenWidth * 0.4,
-      decoration: BoxDecoration(
-        color: image != null
-            ? const Color.fromARGB(255, 101, 204, 82)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(8.0),
-        border: Border.all(
-          width: 1,
-          color: Colors.black,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.4),
-            spreadRadius: 5,
-            blurRadius: 7,
-            offset: const Offset(0, 3),
+        return Container(
+          height: maxHeight * 0.8,
+          width: maxWidth * 0.45,
+          decoration: BoxDecoration(
+            color: image != null
+                ? const Color.fromARGB(255, 101, 204, 82)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(
+              width: 1,
+              color: Colors.black,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.4),
+                spreadRadius: 5,
+                blurRadius: 7,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          child: Padding(
+            padding: EdgeInsets.all(maxWidth * 0.02),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Text(
-                  label,
-                  style: const TextStyle(color: Colors.black),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: maxWidth * 0.08,
+                      ),
+                    ),
+                    if (image != null)
+                      Icon(Icons.check,
+                          color: Colors.black, size: maxWidth * 0.04),
+                  ],
                 ),
-                if (image != null) const Icon(Icons.check, color: Colors.black),
-                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () => _getImage(imageNumber),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(
+                        color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                  ),
+                  child: Text('Take a picture',
+                      style: TextStyle(fontSize: maxWidth * 0.08)),
+                ),
+                ElevatedButton(
+                  onPressed: () => _showImage(image),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(
+                        color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                  ),
+                  child: Text('Preview',
+                      style: TextStyle(fontSize: maxWidth * 0.08)),
+                ),
               ],
             ),
-            ElevatedButton(
-              onPressed: () => _getImage(imageNumber),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                side: const BorderSide(
-                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-              child: const Text('Take a picture'),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: () => _showImage(image),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                side: const BorderSide(
-                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-              child: const Text('Preview'),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -409,7 +419,7 @@ class _LoginPageState extends State<LoginPage> {
     Globals.parcursIn = parcursIn;
     Globals.vehicleID = _selectedCarId;
     Globals.kmValue = _kmController.text;
-    int? userID = Globals.userId;
+    
 
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', true);
@@ -423,9 +433,7 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString('parcursIn', parcursIn!.path);
 
     // Check if last KM is null, set to 0 if it is
-    if (_lastKm == null) {
-      _lastKm = 0; // Set to 0 if no previous KM data exists
-    }
+    _lastKm ??= 0;
 
     if (int.tryParse(_kmController.text) != null) {
       int userInputKm = int.parse(_kmController.text);
@@ -485,6 +493,9 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final screenWidth = screenSize.width;
+    final screenHeight = screenSize.height;
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
@@ -617,8 +628,16 @@ class _LoginPageState extends State<LoginPage> {
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    _buildImageInput(1, _image1),
-                                    _buildImageInput(6, parcursIn),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(1, _image1),
+                                    ),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(6, parcursIn),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 16),
@@ -669,8 +688,16 @@ class _LoginPageState extends State<LoginPage> {
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    _buildImageInput(2, _image2),
-                                    _buildImageInput(3, _image3),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(2, _image2),
+                                    ),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(3, _image3),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 20),
@@ -678,8 +705,16 @@ class _LoginPageState extends State<LoginPage> {
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    _buildImageInput(4, _image4),
-                                    _buildImageInput(5, _image5),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(4, _image4),
+                                    ),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(5, _image5),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 16),

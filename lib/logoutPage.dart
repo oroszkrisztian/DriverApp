@@ -255,74 +255,86 @@ class _LogoutPageState extends State<LogoutPage> {
       default:
         label = 'Unknown';
     }
-    // Use MediaQuery to get the screen width
-    final double screenWidth = MediaQuery.of(context).size.width;
-    return Container(
-      height: 150,
-      width: screenWidth * 0.4,
-      decoration: BoxDecoration(
-        color: image != null
-            ? const Color.fromARGB(255, 101, 204, 82)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(8.0),
-        border: Border.all(
-          width: 1,
-          color: Colors.black,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.4),
-            spreadRadius: 5,
-            blurRadius: 7,
-            offset: const Offset(0, 3),
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double maxWidth = constraints.maxWidth;
+        final double maxHeight = constraints.maxHeight;
+
+        return Container(
+          height: maxHeight * 0.8,
+          width: maxWidth * 0.45,
+          decoration: BoxDecoration(
+            color: image != null
+                ? const Color.fromARGB(255, 101, 204, 82)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(
+              width: 1,
+              color: Colors.black,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.4),
+                spreadRadius: 5,
+                blurRadius: 7,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          child: Padding(
+            padding: EdgeInsets.all(maxWidth * 0.02),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Text(
-                  label,
-                  style: const TextStyle(color: Colors.black),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: maxWidth * 0.08,
+                      ),
+                    ),
+                    if (image != null)
+                      Icon(Icons.check,
+                          color: Colors.black, size: maxWidth * 0.04),
+                  ],
                 ),
-                if (image != null) const Icon(Icons.check, color: Colors.black),
-                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () => _getImage(imageNumber),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(
+                        color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                  ),
+                  child: Text('Take a picture',
+                      style: TextStyle(fontSize: maxWidth * 0.08)),
+                ),
+                ElevatedButton(
+                  onPressed: () => _showImage(image),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    side: const BorderSide(
+                        color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                  ),
+                  child: Text('Preview',
+                      style: TextStyle(fontSize: maxWidth * 0.08)),
+                ),
               ],
             ),
-            ElevatedButton(
-              onPressed: () => _getImage(imageNumber),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                side: const BorderSide(
-                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-              child: const Text('Take a picture'),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: () => _showImage(image),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                side: const BorderSide(
-                    color: Color.fromARGB(255, 101, 204, 82), width: 1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-              child: const Text('Preview'),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -505,6 +517,10 @@ class _LogoutPageState extends State<LogoutPage> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final screenWidth = screenSize.width;
+    final screenHeight = screenSize.height;
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
@@ -519,10 +535,10 @@ class _LogoutPageState extends State<LogoutPage> {
                 children: [
                   CircularProgressIndicator(
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      Color.fromARGB(255, 101, 204, 82), // Green color
+                      Color.fromARGB(255, 101, 204, 82),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(height: screenHeight * 0.02),
                   const Text("Fetching vehicle details..."),
                 ],
               ),
@@ -533,13 +549,14 @@ class _LogoutPageState extends State<LogoutPage> {
                 )
               : SingleChildScrollView(
                   child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: EdgeInsets.all(screenWidth * 0.04),
                     child: Column(
                       children: [
                         if (_selectedCar != null) ...[
                           Container(
-                            margin: const EdgeInsets.symmetric(vertical: 8.0),
-                            padding: const EdgeInsets.all(16.0),
+                            margin: EdgeInsets.symmetric(
+                                vertical: screenHeight * 0.01),
+                            padding: EdgeInsets.all(screenWidth * 0.04),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(10.0),
@@ -556,15 +573,15 @@ class _LogoutPageState extends State<LogoutPage> {
                               children: [
                                 Text(
                                   '${_selectedCar!.name} - ${_selectedCar!.numberPlate}',
-                                  style: const TextStyle(
-                                    fontSize: 20,
+                                  style: TextStyle(
+                                    fontSize: screenWidth * 0.05,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          SizedBox(height: screenHeight * 0.02),
                         ],
                         Container(
                           decoration: BoxDecoration(
@@ -580,55 +597,63 @@ class _LogoutPageState extends State<LogoutPage> {
                             ],
                           ),
                           child: Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Column(
-                                children: [
-                                  TextField(
-                                    controller: _kmController,
-                                    cursorColor:
-                                        const Color.fromARGB(255, 101, 204, 82),
-                                    keyboardType: TextInputType.number,
-                                    inputFormatters: <TextInputFormatter>[
-                                      FilteringTextInputFormatter.digitsOnly,
-                                    ],
-                                    decoration: InputDecoration(
-                                      labelText: 'KM',
-                                      labelStyle:
-                                          const TextStyle(color: Colors.black),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderSide: const BorderSide(
-                                          color:
-                                              Color.fromARGB(255, 101, 204, 82),
-                                        ),
-                                        borderRadius:
-                                            BorderRadius.circular(8.0),
+                            padding: EdgeInsets.all(screenWidth * 0.02),
+                            child: Column(
+                              children: [
+                                TextField(
+                                  controller: _kmController,
+                                  cursorColor:
+                                      const Color.fromARGB(255, 101, 204, 82),
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: <TextInputFormatter>[
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: InputDecoration(
+                                    labelText: 'KM',
+                                    labelStyle:
+                                        const TextStyle(color: Colors.black),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderSide: const BorderSide(
+                                        color:
+                                            Color.fromARGB(255, 101, 204, 82),
                                       ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderSide: const BorderSide(
-                                          color:
-                                              Color.fromARGB(255, 101, 204, 82),
-                                        ),
-                                        borderRadius:
-                                            BorderRadius.circular(8.0),
-                                      ),
+                                      borderRadius: BorderRadius.circular(8.0),
                                     ),
-                                    style: const TextStyle(color: Colors.black),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderSide: const BorderSide(
+                                        color:
+                                            Color.fromARGB(255, 101, 204, 82),
+                                      ),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                    ),
                                   ),
-                                  const SizedBox(
-                                    height: 16,
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontSize: screenWidth * 0.04,
                                   ),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      _buildImageInput(1, _image6),
-                                      _buildImageInput(6, parcursOut),
-                                    ],
-                                  ),
-                                ],
-                              )),
+                                ),
+                                SizedBox(height: screenHeight * 0.02),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(1, _image6),
+                                    ),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(6, parcursOut),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 20),
+                        SizedBox(height: screenHeight * 0.02),
                         Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
@@ -643,65 +668,78 @@ class _LogoutPageState extends State<LogoutPage> {
                             ],
                           ),
                           child: Padding(
-                            padding: const EdgeInsets.all(8.0),
+                            padding: EdgeInsets.all(screenWidth * 0.02),
                             child: Column(
                               children: [
-                                const Row(
-                                  mainAxisAlignment: MainAxisAlignment
-                                      .center, // Center aligns the icon and text
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
                                       Icons.directions_car,
-                                      size: 24,
+                                      size: screenWidth * 0.06,
                                     ),
-                                    SizedBox(
-                                        width:
-                                            8), // Space between the icon and the text
+                                    SizedBox(width: screenWidth * 0.02),
                                     Text(
                                       'Photos',
                                       style: TextStyle(
-                                        fontSize: 20,
+                                        fontSize: screenWidth * 0.05,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: screenHeight * 0.02),
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    _buildImageInput(2, _image7),
-                                    _buildImageInput(3, _image8),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(2, _image7),
+                                    ),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(3, _image8),
+                                    ),
                                   ],
                                 ),
-                                const SizedBox(height: 20),
+                                SizedBox(height: screenHeight * 0.02),
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    _buildImageInput(4, _image9),
-                                    _buildImageInput(5, _image10),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(4, _image9),
+                                    ),
+                                    SizedBox(
+                                      height: screenHeight * 0.2,
+                                      width: screenWidth * 0.4,
+                                      child: _buildImageInput(5, _image10),
+                                    ),
                                   ],
                                 ),
-                                const SizedBox(height: 16),
+                                SizedBox(height: screenHeight * 0.02),
                               ],
                             ),
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: screenHeight * 0.02),
                         SizedBox(
-                          width: 150,
-                          height: 80,
+                          width: screenWidth * 0.4,
+                          height: screenHeight * 0.1,
                           child: ElevatedButton(
                             onPressed: _submitData,
                             style: ElevatedButton.styleFrom(
                               backgroundColor:
                                   const Color.fromARGB(255, 101, 204, 82),
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 20.0),
-                              textStyle: const TextStyle(
-                                fontSize: 20,
+                              padding: EdgeInsets.symmetric(
+                                  vertical: screenHeight * 0.02),
+                              textStyle: TextStyle(
+                                fontSize: screenWidth * 0.05,
                               ),
                             ),
                             child: const Text(
