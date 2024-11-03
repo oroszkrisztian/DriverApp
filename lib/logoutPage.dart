@@ -480,7 +480,7 @@ class _LogoutPageState extends State<LogoutPage> {
 
     _showLoggingOutDialog(); // Show logging out dialog
 
-    await loginVehicle(); // Make sure this completes before navigation
+    await logoutVehicle(); // Make sure this completes before navigation
 
     Workmanager().registerOneOffTask(
       "2",

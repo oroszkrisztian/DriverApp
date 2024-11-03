@@ -1,11 +1,12 @@
+import 'package:app/models/cars_model.dart';
+import 'package:app/services/car_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'driverPage.dart'; // Import DriverPage
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+
 import 'globals.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -38,6 +39,9 @@ class _LoginPageState extends State<LoginPage> {
   final _kmController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
 
+  final CarServices _carServices = CarServices();
+  final List<Car> _cars = []; // Add this to store cars locally
+
   File? _image1;
   File? _image2;
   File? _image3;
@@ -46,99 +50,33 @@ class _LoginPageState extends State<LoginPage> {
   File? parcursIn;
 
   int? _selectedCarId;
-  List<Car> _cars = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   String? _errorMessage;
   int? _lastKm;
 
   @override
   void initState() {
     super.initState();
-    getCars();
+    _initializeData();
   }
 
-  Future<void> getCars() async {
+  Future<void> _initializeData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      final response = await http.post(
-        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-        headers: <String, String>{
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: {
-          'action': 'get-cars',
-        },
-      );
+      await _carServices.initializeData();
 
-      if (response.statusCode == 200) {
-        List<dynamic> jsonData = jsonDecode(response.body);
-        List<Car> cars = jsonData.map((json) => Car.fromJson(json)).toList();
-
-        setState(() {
-          _cars = cars;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _errorMessage = 'Failed to load cars: ${response.statusCode}';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
       setState(() {
-        _errorMessage = 'Error fetching cars: $e';
         _isLoading = false;
+        _errorMessage = null;
       });
-    }
-  }
-
-  Future<bool> getLastKm(int driverId, int vehicleId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-        headers: <String, String>{
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: {
-          'action': 'get-last-km',
-          'driver_id': driverId.toString(),
-          'vehicle_id': vehicleId.toString(),
-        },
-      );
-
-      if (response.statusCode == 200) {
-        var data = jsonDecode(response.body);
-        print('Response data: $data'); // Debug print to check the response
-
-        if (data is bool && data == false) {
-          setState(() {
-            _lastKm = 0; // Set to 0 if no data is found for the vehicle
-            _errorMessage = null; // Clear any previous error messages
-          });
-          return true; // Allow the process to continue since we handle the default value
-        } else if (data != null &&
-            (data is int || int.tryParse(data.toString()) != null)) {
-          setState(() {
-            _lastKm = int.parse(data.toString());
-            _errorMessage = null;
-          });
-          return true;
-        } else {
-          setState(() {
-            _errorMessage = 'Invalid response data';
-          });
-          return false;
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Failed to load last KM: ${response.statusCode}';
-        });
-        return false;
-      }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error fetching last KM: $e';
+        _isLoading = false;
+        _errorMessage = 'Error loading vehicles: $e';
       });
-      return false;
     }
   }
 
@@ -198,6 +136,7 @@ class _LoginPageState extends State<LoginPage> {
       );
       return;
     }
+
     showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
@@ -224,6 +163,20 @@ class _LoginPageState extends State<LoginPage> {
         );
       },
     );
+  }
+
+  void _onCarSelected(int? newValue) {
+    setState(() {
+      _selectedCarId = newValue;
+      if (newValue != null) {
+        // Get the vehicle data for the selected car
+        VehicleData? selectedVehicleData =
+            _carServices.getVehicleData(newValue);
+        if (selectedVehicleData != null) {
+          _lastKm = selectedVehicleData.km; // Get KM from VehicleData
+        }
+      }
+    });
   }
 
   Widget _buildImageInput(int imageNumber, File? image) {
@@ -338,19 +291,19 @@ class _LoginPageState extends State<LoginPage> {
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return Dialog(
+        return const Dialog(
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: EdgeInsets.all(16.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    Color.fromARGB(255, 101, 204, 82), // Green color
+                    Color.fromARGB(255, 101, 204, 82),
                   ),
                 ),
-                const SizedBox(width: 16),
-                const Text("Logging into vehicle"),
+                SizedBox(width: 16),
+                Text("Logging into vehicle"),
               ],
             ),
           ),
@@ -419,7 +372,6 @@ class _LoginPageState extends State<LoginPage> {
     Globals.parcursIn = parcursIn;
     Globals.vehicleID = _selectedCarId;
     Globals.kmValue = _kmController.text;
-    
 
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', true);
@@ -432,13 +384,11 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString('image5', _image5!.path);
     await prefs.setString('parcursIn', parcursIn!.path);
 
-    // Check if last KM is null, set to 0 if it is
     _lastKm ??= 0;
 
     if (int.tryParse(_kmController.text) != null) {
       int userInputKm = int.parse(_kmController.text);
 
-      // Allow user input KM to be equal to or greater than last KM
       if (userInputKm < _lastKm!) {
         showDialog(
           context: context,
@@ -463,7 +413,7 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     _showLoggingDialog();
-    await loginVehicle();
+    await loginVehicle(); // Make sure this function exists
 
     Workmanager().registerOneOffTask(
       "1",
@@ -496,6 +446,7 @@ class _LoginPageState extends State<LoginPage> {
     final screenSize = MediaQuery.of(context).size;
     final screenWidth = screenSize.width;
     final screenHeight = screenSize.height;
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
@@ -510,17 +461,26 @@ class _LoginPageState extends State<LoginPage> {
                 children: [
                   CircularProgressIndicator(
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      Color.fromARGB(255, 101, 204, 82), // Green color
+                      Color.fromARGB(255, 101, 204, 82),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text('Fetching vehicles...')
+                  const Text('Loading...')
                 ],
               ),
             )
           : _errorMessage != null
               ? Center(
-                  child: Text(_errorMessage!),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(_errorMessage!),
+                      ElevatedButton(
+                        onPressed: _initializeData,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
                 )
               : SingleChildScrollView(
                   child: Padding(
@@ -544,43 +504,37 @@ class _LoginPageState extends State<LoginPage> {
                             padding: const EdgeInsets.all(8.0),
                             child: Column(
                               children: [
+                                // Dropdown for car selection
                                 DropdownButtonFormField<int>(
                                   value: _selectedCarId,
-                                  items: _cars.map((Car car) {
+                                  items: _carServices.cars.map((Car car) {
                                     return DropdownMenuItem<int>(
                                       value: car.id,
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8.0),
                                         child: Text(
-                                          '${car.name} - ${car.numberPlate}',
-                                          style: const TextStyle(
-                                              color: Colors.black),
-                                        ),
+                                            '${car.name} - ${car.numberPlate}',
+                                            style: const TextStyle(
+                                                color: Colors.black)),
                                       ),
                                     );
                                   }).toList(),
-                                  onChanged: (newValue) {
-                                    setState(() {
-                                      _selectedCarId = newValue;
-                                    });
-                                  },
+                                  onChanged: _onCarSelected,
                                   decoration: InputDecoration(
                                     labelText: 'Car',
                                     labelStyle:
                                         const TextStyle(color: Colors.black),
                                     focusedBorder: OutlineInputBorder(
                                       borderSide: const BorderSide(
-                                        color:
-                                            Color.fromARGB(255, 101, 204, 82),
-                                      ),
+                                          color: Color.fromARGB(
+                                              255, 101, 204, 82)),
                                       borderRadius: BorderRadius.circular(8.0),
                                     ),
                                     enabledBorder: OutlineInputBorder(
                                       borderSide: const BorderSide(
-                                        color:
-                                            Color.fromARGB(255, 101, 204, 82),
-                                      ),
+                                          color: Color.fromARGB(
+                                              255, 101, 204, 82)),
                                       borderRadius: BorderRadius.circular(8.0),
                                     ),
                                   ),
@@ -591,6 +545,8 @@ class _LoginPageState extends State<LoginPage> {
                                   isExpanded: true,
                                   iconSize: 30.0,
                                 ),
+                                if (_isLoading) CircularProgressIndicator(),
+                                if (_errorMessage != null) Text(_errorMessage!),
                                 const SizedBox(height: 16),
                                 TextField(
                                   controller: _kmController,
@@ -604,6 +560,14 @@ class _LoginPageState extends State<LoginPage> {
                                     labelText: 'KM',
                                     labelStyle:
                                         const TextStyle(color: Colors.black),
+                                    // Show KM if available for selected car
+                                    hintText: _selectedCarId != null
+                                        ? 'Last KM: ${carServices.getLastKmForVehicle(_selectedCarId!) ?? "N/A"}'
+                                        : 'Enter KM',
+                                    hintStyle: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 14,
+                                    ),
                                     focusedBorder: OutlineInputBorder(
                                       borderSide: const BorderSide(
                                         color:
@@ -621,9 +585,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   style: const TextStyle(color: Colors.black),
                                 ),
-                                const SizedBox(
-                                  height: 16,
-                                ),
+                                const SizedBox(height: 16),
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
@@ -640,7 +602,6 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 16),
                               ],
                             ),
                           ),
@@ -664,16 +625,13 @@ class _LoginPageState extends State<LoginPage> {
                             child: Column(
                               children: [
                                 const Row(
-                                  mainAxisAlignment: MainAxisAlignment
-                                      .center, // Center aligns the icon and text
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
                                       Icons.directions_car,
                                       size: 24,
                                     ),
-                                    SizedBox(
-                                        width:
-                                            8), // Space between the icon and the text
+                                    SizedBox(width: 8),
                                     Text(
                                       'Photos',
                                       style: TextStyle(

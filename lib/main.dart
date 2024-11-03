@@ -1,19 +1,27 @@
 import 'dart:io';
 
+import 'package:app/services/car_services.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'globals.dart'; // Import your globals.dart file
 import 'driverPage.dart'; // Import DriverPage
-import 'loginPage.dart'; // Import LoginPage
+// Import LoginPage
 import 'package:workmanager/workmanager.dart';
+
+enum VehicleOperationType { login, logout }
 
 // Constants for task names
 const String uploadImageTask = "uploadImageTask";
 const String uploadExpenseTask = "uploadExpenseTask";
+
+const String vehicleOperationTask = "vehicleOperationTask";
+
+final CarServices carServices = CarServices();
 
 // Callback dispatcher for handling background tasks
 @pragma('vm:entry-point')
@@ -24,6 +32,8 @@ void callbackDispatcher() {
         return await handleImageUpload(inputData);
       case uploadExpenseTask:
         return await handleExpenseUpload(inputData);
+      case vehicleOperationTask:
+        return await handleVehicleOperation(inputData);
       default:
         return Future.value(false);
     }
@@ -42,7 +52,6 @@ Future<bool> handleImageUpload(Map<String, dynamic>? inputData) async {
 }
 
 // Handling expense upload task
-// Handling expense upload task
 Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
   // Check connectivity
   var connectivityResult = await Connectivity().checkConnectivity();
@@ -55,6 +64,69 @@ Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
 
   // Proceed to upload the expense
   return await uploadExpense(inputData);
+}
+
+Future<bool> handleVehicleOperation(Map<String, dynamic>? inputData) async {
+  var connectivityResult = await Connectivity().checkConnectivity();
+
+  if (connectivityResult == ConnectivityResult.none) {
+    print('No internet connection. Saving vehicle operation data locally.');
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      // Save the operation with its type
+      await prefs.setString('pendingVehicleOperation', json.encode(inputData));
+
+      // If it's a logout operation, we want to maintain the logged out state
+      if (inputData?['operationType'] == 'logout') {
+        await prefs.remove('isLoggedIn');
+        await prefs.remove('vehicleId');
+        Globals.vehicleID = null;
+      }
+
+      return false;
+    } catch (e) {
+      print('Error saving vehicle operation data: $e');
+      return false;
+    }
+  }
+
+  return await uploadVehicleOperation(inputData);
+}
+
+Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
+  if (inputData == null) {
+    print("No input data for vehicle operation");
+    return false;
+  }
+
+  try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
+    );
+
+    request.fields['action'] = 'vehicle-login';
+    request.fields['driver'] = inputData['driver'] ?? '';
+    request.fields['vehicle'] = inputData['vehicle'] ?? '';
+    request.fields['km'] = inputData['km'] ?? '';
+    request.fields['datetime'] = inputData['datetime'] ?? ''; // Add this
+
+    var response = await request.send();
+
+    if (response.statusCode == 200) {
+      print(
+          "Vehicle ${inputData['operationType']} operation complete at ${inputData['datetime']}");
+      return true;
+    } else {
+      print(
+          "Vehicle ${inputData['operationType']} operation failed: ${response.statusCode}");
+      return false;
+    }
+  } catch (e) {
+    print('Error during vehicle ${inputData['operationType']} operation: $e');
+    return false;
+  }
 }
 
 // Function to upload images in the background
@@ -159,27 +231,101 @@ Future<void> _uploadSavedExpenses() async {
   }
 }
 
+Future<void> _uploadSavedVehicleOperation() async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String? savedOperationData = prefs.getString('pendingVehicleOperation');
+
+  if (savedOperationData != null) {
+    Map<String, dynamic> operationData = jsonDecode(savedOperationData);
+    String operationType = operationData['operationType'] ?? 'unknown';
+
+    print("Processing pending vehicle $operationType operation...");
+
+    bool success = await uploadVehicleOperation(operationData);
+    if (success) {
+      await prefs.remove('pendingVehicleOperation');
+
+      // If it was a successful logout operation, ensure local state is cleared
+      if (operationType == 'logout') {
+        await prefs.remove('isLoggedIn');
+        await prefs.remove('vehicleId');
+        Globals.vehicleID = null;
+      }
+    }
+  }
+}
+
 // Function to handle vehicle login
+
 Future<void> loginVehicle() async {
   try {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Get current datetime in the required format
+    String currentDateTime =
+        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+    Map<String, dynamic> operationData = {
+      'driver': Globals.userId.toString(),
+      'vehicle': Globals.vehicleID.toString(),
+      'km': Globals.kmValue.toString(),
+      'operationType': 'login',
+      'datetime': currentDateTime, // Add this
+    };
+
+    await Workmanager().registerOneOffTask(
+      "vehicleOperation_${DateTime.now().millisecondsSinceEpoch}",
+      vehicleOperationTask,
+      inputData: operationData,
     );
 
-    request.fields['action'] = 'vehicle-login';
-    request.fields['driver'] = Globals.userId.toString();
-    request.fields['vehicle'] = Globals.vehicleID.toString();
-    request.fields['km'] = Globals.kmValue.toString();
-    var response = await request.send();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setInt('vehicleId', Globals.vehicleID!);
 
-    if (response.statusCode == 200) {
-      print("Login Complete");
-    } else {
-      print("Login Failed");
-    }
+    print("Vehicle login operation scheduled for: $currentDateTime");
   } catch (e) {
-    print('Error during vehicle login: $e');
+    print('Error scheduling vehicle login: $e');
+  }
+}
+
+Future<void> logoutVehicle() async {
+  try {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    String userId = Globals.userId.toString();
+    String vehicleId = Globals.vehicleID.toString();
+
+    // Get current datetime in the required format
+    String currentDateTime =
+        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+    Map<String, dynamic> operationData = {
+      'driver': userId,
+      'vehicle': vehicleId,
+      'km': Globals.kmValue.toString(),
+      'operationType': 'logout',
+      'datetime': currentDateTime, // Add this
+    };
+
+    await Workmanager().registerOneOffTask(
+      "vehicleOperation_${DateTime.now().millisecondsSinceEpoch}",
+      vehicleOperationTask,
+      inputData: operationData,
+    );
+
+    // Clear local state
+    await prefs.remove('isLoggedIn');
+    await prefs.remove('vehicleId');
+    await prefs.remove('image1');
+    await prefs.remove('image2');
+    await prefs.remove('image3');
+    await prefs.remove('image4');
+    await prefs.remove('image5');
+    Globals.vehicleID = null;
+
+    print("Vehicle logout operation scheduled for: $currentDateTime");
+  } catch (e) {
+    print('Error scheduling vehicle logout: $e');
   }
 }
 
@@ -188,6 +334,7 @@ void _listenForConnectivityChanges() {
     if (result != ConnectivityResult.none) {
       // If connected to the internet, attempt to send saved expenses
       _uploadSavedExpenses();
+      _uploadSavedVehicleOperation();
     }
   });
 }
@@ -196,24 +343,21 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
-  // Listen to connectivity changes
-  _listenForConnectivityChanges();
-
   SharedPreferences prefs = await SharedPreferences.getInstance();
   bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
   if (isLoggedIn) {
     Globals.userId = int.tryParse(prefs.getString('userId') ?? '');
     Globals.vehicleID = prefs.getInt('vehicleId');
-    _loadImagesFromPrefs();
-    // Attempt to load and upload expenses
-    String? ExpenseData = prefs.getString("expensesData");
-    if (ExpenseData != null) {
-      Map<String, dynamic> inputData = jsonDecode(ExpenseData);
-      // Schedule a periodic upload task
-      await schedulePeriodicUpload();
-      // Remove data after scheduling
-      await prefs.remove('expensesData');
+    print('User ID loaded: ${Globals.userId}'); // Debug print
+    _loadImagesFromPrefs(); 
+
+    try {
+      // Initialize car services
+      await carServices.initializeData();
+      print('Car services initialized'); // Debug print
+    } catch (e) {
+      print('Error initializing car services: $e');
     }
   }
 
@@ -259,6 +403,88 @@ Future<void> _loadImagesFromPrefs() async {
   if (imagePathParcursIn != null) Globals.parcursIn = File(imagePathParcursIn);
   if (imagePathParcursOut != null)
     Globals.parcursIn = File(imagePathParcursOut);
+}
+
+class InitialLoadingScreen extends StatefulWidget {
+  final bool isLoggedIn;
+
+  const InitialLoadingScreen({super.key, required this.isLoggedIn});
+
+  @override
+  State<InitialLoadingScreen> createState() => _InitialLoadingScreenState();
+}
+
+class _InitialLoadingScreenState extends State<InitialLoadingScreen> {
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      // If vehicles weren't loaded in main, try again
+      if (carServices.cars.isEmpty) {
+        await carServices.getCars();
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+
+        // Navigate to appropriate screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) =>
+                widget.isLoggedIn ? const DriverPage() : const MyHomePage(),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Error loading vehicles: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: _errorMessage != null
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(_errorMessage!),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _initializeData,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color.fromARGB(255, 101, 204, 82),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Loading vehicles...'),
+                ],
+              ),
+      ),
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -310,8 +536,8 @@ class _MyHomePageState extends State<MyHomePage> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return Dialog(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
+          child: const Padding(
+            padding: EdgeInsets.all(16.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -320,8 +546,8 @@ class _MyHomePageState extends State<MyHomePage> {
                     Color.fromARGB(255, 101, 204, 82), // Green color
                   ),
                 ),
-                const SizedBox(width: 16),
-                const Text("Logging user in"),
+                SizedBox(width: 16),
+                Text("Logging user in"),
               ],
             ),
           ),
@@ -380,76 +606,202 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-        title: const Text('GreenFleet Driver'),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Container(
-          color: Colors.grey[200],
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextField(
-                controller: _usernameController,
-                cursorColor: const Color.fromARGB(255, 101, 204, 82),
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  border: OutlineInputBorder(),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(
-                        color: Color.fromARGB(255, 101, 204, 82), width: 2.0),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 16.0),
-              TextField(
-                controller: _passwordController,
-                obscureText: _isObscure,
-                cursorColor: const Color.fromARGB(255, 101, 204, 82),
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  border: const OutlineInputBorder(),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(
-                        color: Color.fromARGB(255, 101, 204, 82), width: 2.0),
-                  ),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _isObscure ? Icons.visibility_off : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: _togglePasswordVisibility,
-                  ),
-                ),
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 16.0),
-              TextButton(
-                style: TextButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 80.0, vertical: 30.0),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15.0),
-                  ),
-                ),
-                onPressed: login,
-                child: const Text(
-                  'Login',
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 20.0,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
-              ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.fromARGB(255, 101, 204, 82),
+              Color.fromARGB(255, 220, 247, 214),
             ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Logo or App Name
+                    Container(
+                      padding: const EdgeInsets.all(16.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            spreadRadius: 2,
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.local_shipping,
+                        size: 50,
+                        color: Color.fromARGB(255, 101, 204, 82),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'GreenFleet Driver',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        shadows: [
+                          Shadow(
+                            offset: Offset(0, 1),
+                            blurRadius: 3.0,
+                            color: Color.fromARGB(255, 0, 0, 0),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                    // Login Card
+                    Container(
+                      padding: const EdgeInsets.all(24.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            spreadRadius: 2,
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Username TextField
+                          TextField(
+                            controller: _usernameController,
+                            cursorColor:
+                                const Color.fromARGB(255, 101, 204, 82),
+                            decoration: InputDecoration(
+                              labelText: 'Username',
+                              prefixIcon: const Icon(
+                                Icons.person_outline,
+                                color: Color.fromARGB(255, 101, 204, 82),
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color.fromARGB(255, 101, 204, 82),
+                                  width: 2.0,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: Colors.grey.shade300,
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey.shade50,
+                            ),
+                            style: const TextStyle(color: Colors.black),
+                          ),
+                          const SizedBox(height: 16),
+                          // Password TextField
+                          TextField(
+                            controller: _passwordController,
+                            obscureText: _isObscure,
+                            cursorColor:
+                                const Color.fromARGB(255, 101, 204, 82),
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(
+                                Icons.lock_outline,
+                                color: Color.fromARGB(255, 101, 204, 82),
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _isObscure
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  color:
+                                      const Color.fromARGB(255, 101, 204, 82),
+                                ),
+                                onPressed: _togglePasswordVisibility,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color.fromARGB(255, 101, 204, 82),
+                                  width: 2.0,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(
+                                  color: Colors.grey.shade300,
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey.shade50,
+                            ),
+                            style: const TextStyle(color: Colors.black),
+                          ),
+                          const SizedBox(height: 24),
+                          // Login Button
+                          ElevatedButton(
+                            onPressed: login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  const Color.fromARGB(255, 101, 204, 82),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 2,
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Login',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Icon(Icons.arrow_forward),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Version or copyright text
+                    Text(
+                      '© ${DateTime.now().year} GreenFleet',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.8),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

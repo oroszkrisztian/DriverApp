@@ -73,14 +73,12 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
         _isSubmitting = true;
       });
 
-
-      
       // Gather form data
       Map<String, String> inputData = {
         'driver': Globals.userId.toString(),
         'vehicle': Globals.vehicleID.toString(),
         'km': _kmController.text,
-        'type': _selectedType!,
+        'type': _selectedType!.toLowerCase(),
         'remarks': _remarksController.text,
         'cost': _costController.text,
         'image': _image?.path ?? '',
@@ -123,7 +121,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Expense Scheduled'),
-          content: const Text('Your expense has been scheduled for submission.'),
+          content:
+              const Text('Your expense has been scheduled for submission.'),
           actions: <Widget>[
             TextButton(
               onPressed: () {
@@ -177,7 +176,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                     label,
                     style: const TextStyle(color: Colors.black),
                   ),
-                  if (image != null) const Icon(Icons.check, color: Colors.black),
+                  if (image != null)
+                    const Icon(Icons.check, color: Colors.black),
                 ],
               ),
               const SizedBox(height: 8),
@@ -186,7 +186,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black,
-                  side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                  side: const BorderSide(
+                      color: Color.fromARGB(255, 101, 204, 82), width: 1),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8.0),
                   ),
@@ -195,11 +196,13 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
               ),
               const SizedBox(height: 8),
               ElevatedButton(
-                onPressed: image != null ? () => _showImagePreview(image) : null,
+                onPressed:
+                    image != null ? () => _showImagePreview(image) : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black,
-                  side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+                  side: const BorderSide(
+                      color: Color.fromARGB(255, 101, 204, 82), width: 1),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8.0),
                   ),
@@ -260,7 +263,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                       child: Column(
                         children: [
                           DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(labelText: 'Expense Type'),
+                            decoration: const InputDecoration(
+                                labelText: 'Expense Type'),
                             items: _expenseTypes.map((String type) {
                               return DropdownMenuItem<String>(
                                 value: type,
@@ -276,7 +280,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                             onChanged: (newValue) {
                               setState(() {
                                 _selectedType = newValue;
-                                _isFuelOrOthersSelected = newValue == 'Fuel' || newValue == 'Others';
+                                _isFuelOrOthersSelected =
+                                    newValue == 'Fuel' || newValue == 'Others';
                               });
                             },
                           ),
@@ -297,10 +302,13 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                             controller: _remarksController,
                             keyboardType: TextInputType.text,
                             decoration: InputDecoration(
-                              labelText: _isFuelOrOthersSelected ? 'Remarks' : 'Remarks (Optional)',
+                              labelText: _isFuelOrOthersSelected
+                                  ? 'Remarks'
+                                  : 'Remarks (Optional)',
                             ),
                             validator: (value) {
-                              if (_isFuelOrOthersSelected && (value == null || value.isEmpty)) {
+                              if (_isFuelOrOthersSelected &&
+                                  (value == null || value.isEmpty)) {
                                 return 'Please enter remarks';
                               }
                               return null;
@@ -310,7 +318,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                           TextFormField(
                             controller: _costController,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Cost'),
+                            decoration:
+                                const InputDecoration(labelText: 'Cost'),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Please enter cost';
@@ -323,7 +332,6 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                           if (_image == null)
                             const Padding(
                               padding: EdgeInsets.only(top: 8.0),
-
                             ),
                         ],
                       ),

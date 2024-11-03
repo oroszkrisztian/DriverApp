@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:app/expense_log_page.dart';
+import 'package:app/models/cars_model.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -14,66 +15,6 @@ import 'vehicleData.dart';
 import 'loginPage.dart'; // Ensure this is imported
 import 'vehicleExpensePage.dart'; // Import the new expense page
 
-class VehicleData {
-  final int vehicleId;
-  final String name;
-  final String numberPlate;
-  final int km;
-  final String insuranceStartDate;
-  final String insuranceEndDate;
-  final bool? insuranceValidity;
-  final String tuvStartDate;
-  final String tuvEndDate;
-  final bool? tuvValidity;
-  final String oilStartDate;
-  final int? oilUntilKm;
-  final bool? oilValidity;
-
-  VehicleData({
-    required this.vehicleId,
-    required this.name,
-    required this.numberPlate,
-    required this.km,
-    required this.insuranceStartDate,
-    required this.insuranceEndDate,
-    this.insuranceValidity,
-    required this.tuvStartDate,
-    required this.tuvEndDate,
-    this.tuvValidity,
-    required this.oilStartDate,
-    this.oilUntilKm,
-    this.oilValidity,
-  });
-
-  factory VehicleData.fromJson(Map<String, dynamic> json) {
-    return VehicleData(
-      vehicleId: json['vehicle']['vehicle_id'] ?? 0,
-      name: json['vehicle']['name'] ?? '',
-      numberPlate: json['vehicle']['numberplate'] ?? '',
-      km: json['vehicle']['km'] ?? 0,
-      insuranceStartDate: json['insurance']['date_start'] ?? '',
-      insuranceEndDate: json['insurance']['date_end'] ?? '',
-      insuranceValidity: _parseValidity(json['insurance']['validity']),
-      tuvStartDate: json['tuv']['date_start'] ?? '',
-      tuvEndDate: json['tuv']['date_end'] ?? '',
-      tuvValidity: _parseValidity(json['tuv']['validity']),
-      oilStartDate: json['oil']['date_start'] ?? '',
-      oilUntilKm: json['oil']['until'] ?? 0,
-      oilValidity: null, // This will be calculated later
-    );
-  }
-
-  static bool? _parseValidity(String? value) {
-    if (value == null) return null;
-    return value.toLowerCase() == 'valid';
-  }
-
-  bool isOilValid() {
-    if (oilUntilKm == null) return false;
-    return km <= oilUntilKm!;
-  }
-}
-
 class DriverPage extends StatefulWidget {
   const DriverPage({super.key});
 
@@ -82,11 +23,11 @@ class DriverPage extends StatefulWidget {
 }
 
 class _DriverPageState extends State<DriverPage> {
-  Future<VehicleData>? _vehicleDataFuture;
-  VehicleData? _selectedCar;
   //bool _dataLoaded = false;
   bool _isLoggedIn = false;
   bool _vehicleLoggedIn = false;
+
+  VehicleData? _selectedCar;
 
   @override
   void initState() {
@@ -101,49 +42,12 @@ class _DriverPageState extends State<DriverPage> {
     setState(() {
       _isLoggedIn = isLoggedIn;
       _vehicleLoggedIn = Globals.vehicleID != null;
-    });
 
-    if (isLoggedIn && Globals.vehicleID != null) {
-      _vehicleDataFuture = fetchVehicleData();
-    }
-  }
-
-  Future<VehicleData> fetchVehicleData() async {
-    try {
-      final response = await http.post(
-        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
-        headers: <String, String>{
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: {
-          'action': 'driver-vehicle-data1',
-          'driver': Globals.userId.toString(),
-        },
-      );
-
-      if (response.statusCode == 200) {
-        if (response.body.isEmpty) {
-          throw Exception('Empty response from server');
-        }
-
-        print('Response body: ${response.body}');
-
-        var jsonData = jsonDecode(response.body);
-
-        // Check if the response contains an error
-        if (jsonData.containsKey('error')) {
-          throw Exception('Server error: ${jsonData['error']}');
-        }
-
-        // If no error, proceed with parsing the data
-        //_dataLoaded = true;
-        return VehicleData.fromJson(jsonData);
-      } else {
-        throw Exception('Failed to load vehicle data: ${response.statusCode} - ${response.body}');
+      // Get the selected car's data if logged in
+      if (_vehicleLoggedIn && Globals.vehicleID != null) {
+        _selectedCar = carServices.getVehicleData(Globals.vehicleID!);
       }
-    } catch (e) {
-      throw Exception('Failed to load vehicle data: $e');
-    }
+    });
   }
 
   Future<void> _logoutUser() async {
@@ -213,7 +117,8 @@ class _DriverPageState extends State<DriverPage> {
                     ElevatedButton(
                       onPressed: () => Navigator.of(context).pop(),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                        backgroundColor:
+                            const Color.fromARGB(255, 101, 204, 82),
                         foregroundColor: Colors.black,
                       ),
                       child: const Text('Close'),
@@ -241,7 +146,8 @@ class _DriverPageState extends State<DriverPage> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const VehicleExpensePage()),
+                    MaterialPageRoute(
+                        builder: (context) => const VehicleExpensePage()),
                   );
                 },
                 backgroundColor: const Color.fromARGB(255, 101, 204, 82),
@@ -261,7 +167,8 @@ class _DriverPageState extends State<DriverPage> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ExpenseLogPage()),
+                    MaterialPageRoute(
+                        builder: (context) => const ExpenseLogPage()),
                   );
                 },
                 backgroundColor: const Color.fromARGB(255, 101, 204, 82),
@@ -289,7 +196,8 @@ class _DriverPageState extends State<DriverPage> {
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        side: const BorderSide(color: Color.fromARGB(255, 101, 204, 82), width: 1),
+        side: const BorderSide(
+            color: Color.fromARGB(255, 101, 204, 82), width: 1),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8.0),
         ),
@@ -298,6 +206,7 @@ class _DriverPageState extends State<DriverPage> {
     );
   }
 
+  @override
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -309,73 +218,230 @@ class _DriverPageState extends State<DriverPage> {
         actions: _vehicleLoggedIn
             ? [] // Empty actions when logged into a vehicle
             : [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _logoutUser,
-          ),
-        ],
+                IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: _logoutUser,
+                ),
+              ],
       ),
       body: _isLoggedIn
-          ? (_vehicleLoggedIn
-          ? FutureBuilder<VehicleData>(
-        future: _vehicleDataFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          } else if (!snapshot.hasData) {
-            return const Center(child: Text('No data available'));
-          } else {
-            VehicleData vehicleData = snapshot.data!;
-            _selectedCar = vehicleData;
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    if (_selectedCar != null) ...[
-                      Container(
-                        margin: const EdgeInsets.symmetric(vertical: 8.0),
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20.0),
-                          border: Border.all(
-                            width: 1,
-                            color: Colors.black,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.6),
-                              spreadRadius: 5,
-                              blurRadius: 7,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              '${_selectedCar!.name} - ${_selectedCar!.numberPlate}',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
+          ? (_vehicleLoggedIn && _selectedCar != null
+              ? SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (_selectedCar != null) ...[
+                          Container(
+                            margin: const EdgeInsets.symmetric(vertical: 8.0),
+                            padding: const EdgeInsets.all(16.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20.0),
+                              border: Border.all(
+                                width: 1,
+                                color: Colors.black,
                               ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.6),
+                                  spreadRadius: 5,
+                                  blurRadius: 7,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
                             ),
-                          ],
+                            child: Column(
+                              children: [
+                                Text(
+                                  '${_selectedCar!.name} - ${_selectedCar!.numberPlate}',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 8.0),
+                          padding: const EdgeInsets.all(2.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20.0),
+                            border: Border.all(
+                              width: 1,
+                              color: Colors.black,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.6),
+                                spreadRadius: 5,
+                                blurRadius: 7,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              columnSpacing: 20,
+                              columns: const [
+                                DataColumn(label: Text('Type')),
+                                DataColumn(label: Text('Start Date')),
+                                DataColumn(label: Text('Until')),
+                                DataColumn(label: Text('Status')),
+                              ],
+                              rows: [
+                                DataRow(cells: [
+                                  const DataCell(Text('Insurance')),
+                                  DataCell(
+                                      Text(_selectedCar!.insuranceStartDate)),
+                                  DataCell(
+                                      Text(_selectedCar!.insuranceEndDate)),
+                                  DataCell(Text(
+                                    _selectedCar!.insuranceValidity != null &&
+                                            _selectedCar!.insuranceValidity!
+                                        ? 'VALID'
+                                        : 'EXPIRED',
+                                    style: TextStyle(
+                                      color: _selectedCar!.insuranceValidity !=
+                                                  null &&
+                                              _selectedCar!.insuranceValidity!
+                                          ? Colors.green
+                                          : Colors.red,
+                                    ),
+                                  )),
+                                ]),
+                                DataRow(cells: [
+                                  const DataCell(Text('TUV')),
+                                  DataCell(Text(_selectedCar!.tuvStartDate)),
+                                  DataCell(Text(_selectedCar!.tuvEndDate)),
+                                  DataCell(Text(
+                                    _selectedCar!.tuvValidity != null &&
+                                            _selectedCar!.tuvValidity!
+                                        ? 'VALID'
+                                        : 'EXPIRED',
+                                    style: TextStyle(
+                                      color:
+                                          _selectedCar!.tuvValidity != null &&
+                                                  _selectedCar!.tuvValidity!
+                                              ? Colors.green
+                                              : Colors.red,
+                                    ),
+                                  )),
+                                ]),
+                                DataRow(cells: [
+                                  const DataCell(Text('Oil')),
+                                  DataCell(Text(_selectedCar!.oilStartDate)),
+                                  DataCell(Text(
+                                      '${_selectedCar!.oilUntilKm ?? 'N/A'} km')),
+                                  DataCell(Text(
+                                    _selectedCar!.isOilValid()
+                                        ? 'VALID'
+                                        : 'EXPIRED',
+                                    style: TextStyle(
+                                      color: _selectedCar!.isOilValid()
+                                          ? Colors.green
+                                          : Colors.red,
+                                    ),
+                                  )),
+                                ]),
+                                DataRow(cells: [
+                                  const DataCell(Text('KM')),
+                                  DataCell(Text(_selectedCar!.km.toString())),
+                                  const DataCell(Text('')),
+                                  const DataCell(Text('')),
+                                ]),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    Container(
+                        const SizedBox(height: 16),
+                        if (Globals.image1 != null ||
+                            Globals.image2 != null ||
+                            Globals.image3 != null ||
+                            Globals.image4 != null ||
+                            Globals.image5 != null)
+                          Container(
+                            margin: const EdgeInsets.symmetric(vertical: 8.0),
+                            padding: const EdgeInsets.all(16.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20.0),
+                              border: Border.all(
+                                width: 1,
+                                color: Colors.black,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.6),
+                                  spreadRadius: 5,
+                                  blurRadius: 7,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                const Text(
+                                  'Pictures',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                _buildImagePreviewButton(
+                                    'Dashboard', Globals.image1),
+                                const SizedBox(height: 8.0),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImagePreviewButton(
+                                        'Front Left', Globals.image2),
+                                    _buildImagePreviewButton(
+                                        'Front Right', Globals.image3),
+                                  ],
+                                ),
+                                const SizedBox(height: 8.0),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildImagePreviewButton(
+                                        'Rear Left', Globals.image4),
+                                    _buildImagePreviewButton(
+                                        'Rear Right', Globals.image5),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        const SizedBox(height: 80),
+                      ],
+                    ),
+                  ),
+                )
+              : Center(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const LoginPage()),
+                      );
+                    },
+                    child: Container(
                       margin: const EdgeInsets.symmetric(vertical: 8.0),
-                      padding: const EdgeInsets.all(2.0),
+                      padding: const EdgeInsets.all(16.0),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Colors.red,
                         borderRadius: BorderRadius.circular(20.0),
                         border: Border.all(
                           width: 1,
@@ -390,200 +456,39 @@ class _DriverPageState extends State<DriverPage> {
                           ),
                         ],
                       ),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columnSpacing: 20,
-                          columns: const [
-                            DataColumn(label: Text('Type')),
-                            DataColumn(label: Text('Start Date')),
-                            DataColumn(label: Text('Untill')),
-                            DataColumn(label: Text('Status')),
-                          ],
-                          rows: [
-                            DataRow(cells: [
-                              const DataCell(Text('Insurance')),
-                              DataCell(Text(vehicleData.insuranceStartDate)),
-                              DataCell(Text(vehicleData.insuranceEndDate)),
-                              DataCell(Text(
-                                vehicleData.insuranceValidity != null && vehicleData.insuranceValidity!
-                                    ? 'VALID'
-                                    : 'EXPIRED',
-                                style: TextStyle(
-                                  color: vehicleData.insuranceValidity != null && vehicleData.insuranceValidity!
-                                      ? Colors.green
-                                      : Colors.red,
-                                ),
-                              )),
-                            ]),
-                            DataRow(cells: [
-                              const DataCell(Text('TUV')),
-                              DataCell(Text(vehicleData.tuvStartDate)),
-                              DataCell(Text(vehicleData.tuvEndDate)),
-                              DataCell(Text(
-                                vehicleData.tuvValidity != null && vehicleData.tuvValidity!
-                                    ? 'VALID'
-                                    : 'EXPIRED',
-                                style: TextStyle(
-                                  color: vehicleData.tuvValidity != null && vehicleData.tuvValidity!
-                                      ? Colors.green
-                                      : Colors.red,
-                                ),
-                              )),
-                            ]),
-                            DataRow(cells: [
-                              const DataCell(Text('Oil')),
-                              DataCell(Text(vehicleData.oilStartDate)),
-                              DataCell(Text('${vehicleData.oilUntilKm ?? 'N/A'} km')),
-                              DataCell(Text(
-                                vehicleData.isOilValid() ? 'VALID' : 'EXPIRED',
-                                style: TextStyle(
-                                  color: vehicleData.isOilValid() ? Colors.green : Colors.red,
-                                ),
-                              )),
-                            ]),
-                            DataRow(cells: [
-                              const DataCell(Text('KM')),
-                              DataCell(Text(vehicleData.km.toString())),
-                              const DataCell(Text('')),
-                              const DataCell(Text('')),
-                            ]),
-                          ],
-                        ),
-                      ),
+                      child: const Text('You are not logged in a car'),
                     ),
-                    const SizedBox(height: 16),
-                    if (Globals.image1 != null ||
-                        Globals.image2 != null ||
-                        Globals.image3 != null ||
-                        Globals.image4 != null ||
-                        Globals.image5 != null)
-                      Container(
-                        margin: const EdgeInsets.symmetric(vertical: 8.0),
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20.0),
-                          border: Border.all(
-                            width: 1,
-                            color: Colors.black,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.6),
-                              spreadRadius: 5,
-                              blurRadius: 7,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            const Text(
-                              'Pictures',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            _buildImagePreviewButton(
-                                'Dashboard', Globals.image1),
-                            const SizedBox(height: 8.0),
-                            Row(
-                              mainAxisAlignment:
-                              MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _buildImagePreviewButton(
-                                    'Front Left', Globals.image2),
-                                _buildImagePreviewButton(
-                                    'Front Right', Globals.image3),
-                              ],
-                            ),
-                            const SizedBox(height: 8.0),
-                            Row(
-                              mainAxisAlignment:
-                              MainAxisAlignment.spaceEvenly,
-                              children: [
-                                _buildImagePreviewButton(
-                                    'Rear Left', Globals.image4),
-                                _buildImagePreviewButton(
-                                    'Rear Right', Globals.image5),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: 80), // Empty space for buttons
+                  ),
+                ))
+          : Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                padding: const EdgeInsets.all(16.0),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(20.0),
+                  border: Border.all(
+                    width: 1,
+                    color: Colors.black,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.6),
+                      spreadRadius: 5,
+                      blurRadius: 7,
+                      offset: const Offset(0, 3),
+                    ),
                   ],
                 ),
+                child: const Text('Please log in to see your car data'),
               ),
-            );
-          }
-        },
-      )
-          : Center(
-        child: GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const LoginPage()),
-            );
-          },
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 8.0),
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: Colors.red,
-              borderRadius: BorderRadius.circular(20.0),
-              border: Border.all(
-                width: 1,
-                color: Colors.black,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.6),
-                  spreadRadius: 5,
-                  blurRadius: 7,
-                  offset: const Offset(0, 3),
-                ),
-              ],
             ),
-            child: const Text('Please log into a vehicle to see its data'),
-          ),
-        ),
-      ))
-          : Center(
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 8.0),
-          padding: const EdgeInsets.all(16.0),
-          decoration: BoxDecoration(
-            color: Colors.red,
-            borderRadius: BorderRadius.circular(20.0),
-            border: Border.all(
-              width: 1,
-              color: Colors.black,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.6),
-                spreadRadius: 5,
-                blurRadius: 7,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: const Text('Please log in to see your car data'),
-        ),
-      ),
       floatingActionButton: Container(
         padding: const EdgeInsets.only(bottom: 16),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween, // Aligns buttons across the screen
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const SizedBox(width: 16), // Space at the start
-
-            // "MyLogs" button
+            const SizedBox(width: 16),
             FloatingActionButton(
               heroTag: 'logs',
               onPressed: () {
@@ -604,15 +509,14 @@ class _DriverPageState extends State<DriverPage> {
                 ],
               ),
             ),
-
-            // If logged in, "MyCar" button
             if (_vehicleLoggedIn)
               FloatingActionButton(
                 heroTag: 'car',
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const VehicleDataPage()),
+                    MaterialPageRoute(
+                        builder: (context) => const VehicleDataPage()),
                   );
                 },
                 backgroundColor: const Color.fromARGB(255, 101, 204, 82),
@@ -627,8 +531,6 @@ class _DriverPageState extends State<DriverPage> {
                   ],
                 ),
               ),
-
-            // If logged in, "Expense" button
             if (_vehicleLoggedIn)
               FloatingActionButton(
                 heroTag: 'expense',
@@ -645,11 +547,9 @@ class _DriverPageState extends State<DriverPage> {
                   ],
                 ),
               ),
-
-            // "Login Vehicle/Logout Vehicle" button with consistent size and alignment
             SizedBox(
-              width: 90, // Adjusted width for consistent button size
-              height: 56, // Ensure height matches standard FAB size (56 is default)
+              width: 90,
+              height: 56,
               child: FloatingActionButton(
                 heroTag: 'vehicle_action',
                 onPressed: () async {
@@ -688,13 +588,15 @@ class _DriverPageState extends State<DriverPage> {
                       );
                     } else {
                       int? vehicleId = Globals.vehicleID;
-                      print("Button change log in/out: " + vehicleId.toString());
+                      print("Button change log in/out: $vehicleId");
                       return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(vehicleId != null ? Icons.logout : Icons.login),
                           Text(
-                            vehicleId != null ? 'Logout Vehicle' : 'Login Vehicle',
+                            vehicleId != null
+                                ? 'Logout Vehicle'
+                                : 'Login Vehicle',
                             style: const TextStyle(fontSize: 10),
                           ),
                         ],
@@ -704,13 +606,10 @@ class _DriverPageState extends State<DriverPage> {
                 ),
               ),
             ),
-
-            const SizedBox(width: 16), // Space at the end
+            const SizedBox(width: 16),
           ],
         ),
       ),
-
-
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
