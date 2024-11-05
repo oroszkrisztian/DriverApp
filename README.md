@@ -1,4 +1,4 @@
-# FGreenFleet-DriverApp
+# GreenFleet-DriverApp
 
 Inditas utan mindig meg kell csinalni a pull:  
 git -C lib/ pull  
