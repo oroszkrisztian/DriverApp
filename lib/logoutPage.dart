@@ -1,3 +1,5 @@
+import 'package:app/models/cars_model.dart';
+import 'package:app/services/car_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -37,6 +39,7 @@ class LogoutPage extends StatefulWidget {
 class _LogoutPageState extends State<LogoutPage> {
   final _kmController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
+  final CarServices _carServices = CarServices();
 
   File? _image6;
   File? _image7;
@@ -45,105 +48,21 @@ class _LogoutPageState extends State<LogoutPage> {
   File? _image10;
   File? parcursOut;
 
-  Car? _selectedCar;
-  bool _isLoading = true;
+  VehicleData? _selectedCar;
+  bool _isLoading = false;
   String? _errorMessage;
   int? _lastKm;
+  int? carId;
 
   @override
   void initState() {
     super.initState();
-    getCarDetails();
-  }
-
-  Future<void> getCarDetails() async {
-    try {
-      final response = await http.post(
-        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-        headers: <String, String>{
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: {
-          'action': 'get-vehicle-info',
-          'vehicle': Globals.vehicleID.toString(),
-        },
-      );
-
-      if (response.statusCode == 200) {
-        List<dynamic> jsonData = jsonDecode(response.body);
-        if (jsonData.isNotEmpty) {
-          setState(() {
-            _selectedCar = Car.fromJson(jsonData[0]);
-            _isLoading = false;
-          });
-        } else {
-          setState(() {
-            _errorMessage = 'No car found with the provided ID.';
-            _isLoading = false;
-          });
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Failed to load car details: ${response.statusCode}';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Error fetching car details: $e';
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<bool> getLastKm(int driverId, int vehicleId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-        headers: <String, String>{
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: {
-          'action': 'get-last-km',
-          'driver_id': driverId.toString(),
-          'vehicle_id': vehicleId.toString(),
-        },
-      );
-
-      if (response.statusCode == 200) {
-        var data = jsonDecode(response.body);
-        print('Response data: $data'); // Debug print to check the response
-
-        if (data is bool && data == false) {
-          setState(() {
-            _lastKm = 0; // Set to 0 if no data is found
-            _errorMessage = null; // Clear any previous error messages
-          });
-          return true; // Allow the process to continue
-        } else if (data != null &&
-            (data is int || int.tryParse(data.toString()) != null)) {
-          setState(() {
-            _lastKm = int.parse(data.toString());
-            _errorMessage = null;
-          });
-          return true;
-        } else {
-          setState(() {
-            _errorMessage = 'Invalid response data';
-          });
-          return false;
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Failed to load last KM: ${response.statusCode}';
-        });
-        return false;
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Error fetching last KM: $e';
-      });
-      return false;
+    // Just get the stored vehicle data
+    if (Globals.vehicleID != null) {
+      _selectedCar = carServices.getVehicleData(Globals.vehicleID!);
+      _lastKm = _selectedCar?.km; // Set last KM from stored data
+      carId = Globals.vehicleID;
+      print("LogoutPage car id: ${carId}");
     }
   }
 
@@ -182,7 +101,7 @@ class _LogoutPageState extends State<LogoutPage> {
     }
   }
 
-  void _showImage(File? image) {
+  void _showImage(File? image, int imageNumber) {
     if (image == null) {
       showDialog(
         context: context,
@@ -203,28 +122,70 @@ class _LogoutPageState extends State<LogoutPage> {
       );
       return;
     }
-    showModalBottomSheet(
+
+    showDialog(
       context: context,
       builder: (BuildContext context) {
-        return Center(
-          child: Container(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.0),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.6,
+                  maxWidth: MediaQuery.of(context).size.width * 0.8,
+                ),
+                child: ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(20)),
                   child: Image.file(
                     image,
                     fit: BoxFit.contain,
                   ),
                 ),
-                const SizedBox(height: 8.0),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close'),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Take New Photo Button
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop(); // Close preview
+                      _getImage(imageNumber); // Take new photo
+                    },
+                    icon: const Icon(
+                      Icons.camera_alt,
+                      color: Color.fromARGB(255, 101, 204, 82),
+                    ),
+                    label: const Text(
+                      'Take New Photo',
+                      style: TextStyle(
+                        color: Color.fromARGB(255, 101, 204, 82),
+                      ),
+                    ),
+                  ),
+                  // Close Button
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.grey,
+                    ),
+                    label: const Text(
+                      'Close',
+                      style: TextStyle(
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
         );
       },
@@ -317,7 +278,7 @@ class _LogoutPageState extends State<LogoutPage> {
                       style: TextStyle(fontSize: maxWidth * 0.08)),
                 ),
                 ElevatedButton(
-                  onPressed: () => _showImage(image),
+                  onPressed: () => _showImage(image,imageNumber),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Colors.black,
@@ -343,9 +304,9 @@ class _LogoutPageState extends State<LogoutPage> {
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return Dialog(
+        return const Dialog(
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: EdgeInsets.all(16.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -354,8 +315,8 @@ class _LogoutPageState extends State<LogoutPage> {
                     Color.fromARGB(255, 101, 204, 82), // Green color
                   ),
                 ),
-                const SizedBox(width: 16),
-                const Text("Logging out of vehicle"),
+                SizedBox(width: 16),
+                Text("Logging out of vehicle"),
               ],
             ),
           ),
@@ -417,6 +378,7 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
+    // Store the images and KM in Globals
     Globals.image6 = _image6;
     Globals.image7 = _image7;
     Globals.image8 = _image8;
@@ -425,17 +387,16 @@ class _LogoutPageState extends State<LogoutPage> {
     Globals.parcursOut = parcursOut;
     Globals.kmValue = _kmController.text;
 
-    int? userID = Globals.userId;
-    int? carId = Globals.vehicleID;
-
-    bool isKmValid = await getLastKm(userID!, carId!);
-    if (!isKmValid) {
+    // Get stored vehicle data
+    final vehicleData = carServices.getVehicleData(Globals.vehicleID!);
+    if (vehicleData == null) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
           return AlertDialog(
             title: const Text('Error'),
-            content: const Text('Invalid KM data. Please check and try again.'),
+            content:
+                const Text('Could not verify vehicle data. Please try again.'),
             actions: <Widget>[
               TextButton(
                 onPressed: () {
@@ -450,19 +411,20 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
-    // Handle user input KM validation
+    // Validate KM input
     if (int.tryParse(_kmController.text) != null) {
       int userInputKm = int.parse(_kmController.text);
+      int lastKm = vehicleData.km; // Using stored vehicle data
 
-      // Allow user input KM to be equal to or greater than last KM
-      if (userInputKm < _lastKm!) {
+      // Check if input KM is valid
+      if (userInputKm < lastKm) {
         showDialog(
           context: context,
           builder: (BuildContext context) {
             return AlertDialog(
               title: const Text('Error'),
               content: Text(
-                  'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
+                  'The entered KM must be greater than or equal to the last logged KM.\nLast km: $lastKm'),
               actions: <Widget>[
                 TextButton(
                   onPressed: () {
@@ -478,16 +440,16 @@ class _LogoutPageState extends State<LogoutPage> {
       }
     }
 
-    _showLoggingOutDialog(); // Show logging out dialog
+    _showLoggingOutDialog();
 
-    await logoutVehicle(); // Make sure this completes before navigation
+    await logoutVehicle();
 
     Workmanager().registerOneOffTask(
       "2",
       uploadImageTask,
       inputData: {
         'userId': Globals.userId.toString(),
-        'vehicleID': Globals.vehicleID.toString(),
+        'vehicleID': carId.toString(),
         'km': _kmController.text,
         'image1': Globals.image6?.path,
         'image2': Globals.image7?.path,
@@ -498,7 +460,8 @@ class _LogoutPageState extends State<LogoutPage> {
       },
     );
 
-    _hideLoggingOutDialog(); // Hide logging out dialog
+    _hideLoggingOutDialog();
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove('vehicleId');
     await prefs.remove('image1');
@@ -507,6 +470,7 @@ class _LogoutPageState extends State<LogoutPage> {
     await prefs.remove('image4');
     await prefs.remove('image5');
     Globals.vehicleID = null;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -524,234 +488,357 @@ class _LogoutPageState extends State<LogoutPage> {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
-        title: const Text("Logout My Car"),
+        title: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.directions_car_filled_outlined,
+                color: Colors.white, size: 24),
+            SizedBox(width: 8),
+            Text(
+              "Vehicle Logout",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
         centerTitle: true,
         backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+        elevation: 0,
       ),
-      body: _isLoading
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Color.fromARGB(255, 101, 204, 82),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.fromARGB(255, 101, 204, 82),
+              Color.fromARGB(255, 220, 247, 214),
+            ],
+          ),
+        ),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                // Vehicle Info Card
+                if (_selectedCar != null)
+                  Card(
+                    elevation: 8,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        color: Colors.white,
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.directions_car,
+                                color: Color.fromARGB(255, 101, 204, 82),
+                                size: 32,
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                _selectedCar!.name, // Using stored vehicle data
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _selectedCar!
+                                .numberPlate, // Using stored vehicle data
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.black54,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  SizedBox(height: screenHeight * 0.02),
-                  const Text("Fetching vehicle details..."),
-                ],
-              ),
-            )
-          : _errorMessage != null
-              ? Center(
-                  child: Text(_errorMessage!),
-                )
-              : SingleChildScrollView(
+                const SizedBox(height: 16),
+
+                // KM Input Card
+                Card(
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
                   child: Padding(
-                    padding: EdgeInsets.all(screenWidth * 0.04),
+                    padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
-                        if (_selectedCar != null) ...[
-                          Container(
-                            margin: EdgeInsets.symmetric(
-                                vertical: screenHeight * 0.01),
-                            padding: EdgeInsets.all(screenWidth * 0.04),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10.0),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.grey.withOpacity(0.6),
-                                  spreadRadius: 5,
-                                  blurRadius: 7,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.speed,
+                              color: Color.fromARGB(255, 101, 204, 82),
+                              size: 24,
                             ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  '${_selectedCar!.name} - ${_selectedCar!.numberPlate}',
-                                  style: TextStyle(
-                                    fontSize: screenWidth * 0.05,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: screenHeight * 0.02),
-                        ],
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8.0),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withOpacity(0.6),
-                                spreadRadius: 5,
-                                blurRadius: 7,
-                                offset: const Offset(0, 3),
+                            SizedBox(width: 8),
+                            Text(
+                              'Odometer Reading',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
                               ),
-                            ],
-                          ),
-                          child: Padding(
-                            padding: EdgeInsets.all(screenWidth * 0.02),
-                            child: Column(
-                              children: [
-                                TextField(
-                                  controller: _kmController,
-                                  cursorColor:
-                                      const Color.fromARGB(255, 101, 204, 82),
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: <TextInputFormatter>[
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: InputDecoration(
-                                    labelText: 'KM',
-                                    labelStyle:
-                                        const TextStyle(color: Colors.black),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderSide: const BorderSide(
-                                        color:
-                                            Color.fromARGB(255, 101, 204, 82),
-                                      ),
-                                      borderRadius: BorderRadius.circular(8.0),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderSide: const BorderSide(
-                                        color:
-                                            Color.fromARGB(255, 101, 204, 82),
-                                      ),
-                                      borderRadius: BorderRadius.circular(8.0),
-                                    ),
-                                  ),
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontSize: screenWidth * 0.04,
-                                  ),
-                                ),
-                                SizedBox(height: screenHeight * 0.02),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    SizedBox(
-                                      height: screenHeight * 0.2,
-                                      width: screenWidth * 0.4,
-                                      child: _buildImageInput(1, _image6),
-                                    ),
-                                    SizedBox(
-                                      height: screenHeight * 0.2,
-                                      width: screenWidth * 0.4,
-                                      child: _buildImageInput(6, parcursOut),
-                                    ),
-                                  ],
-                                ),
-                              ],
                             ),
-                          ),
+                          ],
                         ),
-                        SizedBox(height: screenHeight * 0.02),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8.0),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withOpacity(0.6),
-                                spreadRadius: 5,
-                                blurRadius: 7,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Padding(
-                            padding: EdgeInsets.all(screenWidth * 0.02),
-                            child: Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.directions_car,
-                                      size: screenWidth * 0.06,
-                                    ),
-                                    SizedBox(width: screenWidth * 0.02),
-                                    Text(
-                                      'Photos',
-                                      style: TextStyle(
-                                        fontSize: screenWidth * 0.05,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: screenHeight * 0.02),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    SizedBox(
-                                      height: screenHeight * 0.2,
-                                      width: screenWidth * 0.4,
-                                      child: _buildImageInput(2, _image7),
-                                    ),
-                                    SizedBox(
-                                      height: screenHeight * 0.2,
-                                      width: screenWidth * 0.4,
-                                      child: _buildImageInput(3, _image8),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: screenHeight * 0.02),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    SizedBox(
-                                      height: screenHeight * 0.2,
-                                      width: screenWidth * 0.4,
-                                      child: _buildImageInput(4, _image9),
-                                    ),
-                                    SizedBox(
-                                      height: screenHeight * 0.2,
-                                      width: screenWidth * 0.4,
-                                      child: _buildImageInput(5, _image10),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: screenHeight * 0.02),
-                              ],
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _kmController,
+                          cursorColor: const Color.fromARGB(255, 101, 204, 82),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: <TextInputFormatter>[
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: InputDecoration(
+                            labelText: 'Current KM',
+                            labelStyle: const TextStyle(color: Colors.black87),
+                            // Use the stored vehicle data from carServices
+                            hintText: Globals.vehicleID != null
+                                ? 'Last KM: ${carServices.getVehicleData(Globals.vehicleID!)?.km ?? "N/A"}'
+                                : 'Enter KM',
+                            hintStyle: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14,
                             ),
-                          ),
-                        ),
-                        SizedBox(height: screenHeight * 0.02),
-                        SizedBox(
-                          width: screenWidth * 0.4,
-                          height: screenHeight * 0.1,
-                          child: ElevatedButton(
-                            onPressed: _submitData,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  const Color.fromARGB(255, 101, 204, 82),
-                              padding: EdgeInsets.symmetric(
-                                  vertical: screenHeight * 0.02),
-                              textStyle: TextStyle(
-                                fontSize: screenWidth * 0.05,
+                            prefixIcon: const Icon(
+                              Icons.speed,
+                              color: Color.fromARGB(255, 101, 204, 82),
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color.fromARGB(255, 101, 204, 82),
+                                width: 2,
                               ),
                             ),
-                            child: const Text(
-                              'Logout',
-                              style: TextStyle(color: Colors.black),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade300,
+                              ),
                             ),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
                           ),
                         ),
                       ],
                     ),
                   ),
                 ),
+
+                const SizedBox(height: 16),
+
+                // Photos Card
+                // Photos Card
+                Card(
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(
+                        MediaQuery.of(context).size.width * 0.04),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min, // Important
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.photo_camera,
+                              color: Color.fromARGB(255, 101, 204, 82),
+                              size: MediaQuery.of(context).size.width * 0.06,
+                            ),
+                            SizedBox(
+                                width:
+                                    MediaQuery.of(context).size.width * 0.02),
+                            Text(
+                              'Required Photos',
+                              style: TextStyle(
+                                fontSize:
+                                    MediaQuery.of(context).size.width * 0.045,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.02),
+                        _buildPhotoGrid(),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Logout Button
+                SizedBox(
+                  width: screenWidth * 0.5,
+                  child: ElevatedButton(
+                    onPressed: _submitData,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 2,
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.logout),
+                        SizedBox(width: 8),
+                        Text(
+                          'Complete Logout',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+// Helper method for photo grid
+  Widget _buildPhotoGrid() {
+    final screenSize = MediaQuery.of(context).size;
+    final spacing = screenSize.width * 0.03; // Dynamic spacing
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(child: _buildImageInputNew('Dashboard', 1, _image6)),
+                SizedBox(width: spacing),
+                Expanded(child: _buildImageInputNew('LogBook', 6, parcursOut)),
+              ],
+            ),
+            SizedBox(height: spacing),
+            Row(
+              children: [
+                Expanded(child: _buildImageInputNew('Front Left', 2, _image7)),
+                SizedBox(width: spacing),
+                Expanded(child: _buildImageInputNew('Front Right', 3, _image8)),
+              ],
+            ),
+            SizedBox(height: spacing),
+            Row(
+              children: [
+                Expanded(child: _buildImageInputNew('Rear Left', 4, _image9)),
+                SizedBox(width: spacing),
+                Expanded(child: _buildImageInputNew('Rear Right', 5, _image10)),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+// Updated image input widget with modern design
+  Widget _buildImageInputNew(String label, int imageNumber, File? image) {
+    final screenSize = MediaQuery.of(context).size;
+    final buttonHeight = screenSize.height * 0.15;
+
+    return Container(
+      height: buttonHeight,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: image != null
+              ? const Color.fromARGB(255, 101, 204, 82)
+              : Colors.grey.shade300,
+          width: image != null ? 2 : 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: image != null
+              ? () =>
+                  _showImage(image, imageNumber) // Show preview if image exists
+              : () => _getImage(imageNumber), // Take photo if no image
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              vertical: screenSize.height * 0.01,
+              horizontal: screenSize.width * 0.02,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Icon(
+                  image != null ? Icons.check_circle : Icons.add_a_photo,
+                  color: image != null
+                      ? const Color.fromARGB(255, 101, 204, 82)
+                      : Colors.grey.shade400,
+                  size: screenSize.width * 0.06,
+                ),
+                SizedBox(height: screenSize.height * 0.005),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontSize: screenSize.width * 0.025,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (image != null)
+                  Text(
+                    'Tap to view',
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 101, 204, 82),
+                      fontSize: screenSize.width * 0.02,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

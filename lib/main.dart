@@ -21,6 +21,8 @@ const String uploadExpenseTask = "uploadExpenseTask";
 
 const String vehicleOperationTask = "vehicleOperationTask";
 
+const String connectivityCheckTask = "connectivityCheckTask";
+
 final CarServices carServices = CarServices();
 
 // Callback dispatcher for handling background tasks
@@ -34,10 +36,39 @@ void callbackDispatcher() {
         return await handleExpenseUpload(inputData);
       case vehicleOperationTask:
         return await handleVehicleOperation(inputData);
+      case connectivityCheckTask:
+        return await handleConnectivityCheck();
       default:
         return Future.value(false);
     }
   });
+}
+
+Future<bool> handleConnectivityCheck() async {
+  try {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult != ConnectivityResult.none) {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      // Check and upload pending vehicle operations
+      String? pendingOperation = prefs.getString('pendingVehicleOperation');
+      if (pendingOperation != null) {
+        Map<String, dynamic> operationData = jsonDecode(pendingOperation);
+        await uploadVehicleOperation(operationData);
+      }
+
+      // Check and upload pending expenses
+      String? pendingExpense = prefs.getString('expensesData');
+      if (pendingExpense != null) {
+        Map<String, dynamic> expenseData = jsonDecode(pendingExpense);
+        await uploadExpense(expenseData);
+      }
+    }
+    return true;
+  } catch (e) {
+    print('Error in connectivity check: $e');
+    return false;
+  }
 }
 
 // Handling image upload task
@@ -247,7 +278,7 @@ Future<void> _uploadSavedVehicleOperation() async {
 
       // If it was a successful logout operation, ensure local state is cleared
       if (operationType == 'logout') {
-        await prefs.remove('isLoggedIn');
+        //await prefs.remove('isLoggedIn');
         await prefs.remove('vehicleId');
         Globals.vehicleID = null;
       }
@@ -260,23 +291,25 @@ Future<void> _uploadSavedVehicleOperation() async {
 Future<void> loginVehicle() async {
   try {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-
-    // Get current datetime in the required format
-    String currentDateTime =
-        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    String currentDateTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
     Map<String, dynamic> operationData = {
       'driver': Globals.userId.toString(),
       'vehicle': Globals.vehicleID.toString(),
       'km': Globals.kmValue.toString(),
       'operationType': 'login',
-      'datetime': currentDateTime, // Add this
+      'datetime': currentDateTime,
     };
 
     await Workmanager().registerOneOffTask(
       "vehicleOperation_${DateTime.now().millisecondsSinceEpoch}",
       vehicleOperationTask,
       inputData: operationData,
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: true,
+      ),
+      existingWorkPolicy: ExistingWorkPolicy.append,
     );
 
     await prefs.setBool('isLoggedIn', true);
@@ -296,25 +329,28 @@ Future<void> logoutVehicle() async {
     String vehicleId = Globals.vehicleID.toString();
 
     // Get current datetime in the required format
-    String currentDateTime =
-        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    String currentDateTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
     Map<String, dynamic> operationData = {
       'driver': userId,
       'vehicle': vehicleId,
       'km': Globals.kmValue.toString(),
       'operationType': 'logout',
-      'datetime': currentDateTime, // Add this
+      'datetime': currentDateTime,
     };
 
     await Workmanager().registerOneOffTask(
       "vehicleOperation_${DateTime.now().millisecondsSinceEpoch}",
       vehicleOperationTask,
       inputData: operationData,
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: true,
+      ),
+      existingWorkPolicy: ExistingWorkPolicy.append,  // Allow multiple tasks to queue
     );
 
     // Clear local state
-    await prefs.remove('isLoggedIn');
     await prefs.remove('vehicleId');
     await prefs.remove('image1');
     await prefs.remove('image2');
@@ -322,6 +358,9 @@ Future<void> logoutVehicle() async {
     await prefs.remove('image4');
     await prefs.remove('image5');
     Globals.vehicleID = null;
+
+    // Save operation data locally in case immediate upload fails
+    await prefs.setString('pendingVehicleOperation', jsonEncode(operationData));
 
     print("Vehicle logout operation scheduled for: $currentDateTime");
   } catch (e) {
@@ -343,23 +382,36 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
+  // Register the periodic connectivity check
+  await Workmanager().registerPeriodicTask(
+    "connectivityCheck",
+    connectivityCheckTask,
+    frequency: const Duration(minutes: 15),  // Minimum interval allowed
+    constraints: Constraints(
+      networkType: NetworkType.connected,    // Only run when network is available
+      requiresBatteryNotLow: true,          // Don't run on low battery
+    ),
+    existingWorkPolicy: ExistingWorkPolicy.replace,
+  );
+
   SharedPreferences prefs = await SharedPreferences.getInstance();
   bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
   if (isLoggedIn) {
     Globals.userId = int.tryParse(prefs.getString('userId') ?? '');
     Globals.vehicleID = prefs.getInt('vehicleId');
-    print('User ID loaded: ${Globals.userId}'); // Debug print
-    _loadImagesFromPrefs(); 
+    print('User ID loaded: ${Globals.userId}');
+    _loadImagesFromPrefs();
 
     try {
-      // Initialize car services
       await carServices.initializeData();
-      print('Car services initialized'); // Debug print
+      print('Car services initialized');
     } catch (e) {
       print('Error initializing car services: $e');
     }
   }
+
+  _listenForConnectivityChanges();
 
   runApp(MyApp(isLoggedIn: isLoggedIn));
 }

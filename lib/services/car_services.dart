@@ -1,13 +1,15 @@
 import 'package:app/globals.dart';
 import 'package:app/loginPage.dart';
 import 'package:app/models/cars_model.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CarServices {
   List<Car> _cars = [];
   int _lastKm = 0;
-  VehicleData? _vehicleData; // Add this to store vehicle data
+  VehicleData? _vehicleData;
   Map<int, VehicleData> _vehiclesData = {};
 
   // Getters
@@ -16,19 +18,32 @@ class CarServices {
   VehicleData? get vehicleData => _vehicleData;
   Map<int, VehicleData> get vehiclesData => _vehiclesData;
 
-  // Combined initialization method
+  Future<bool> _checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    return connectivityResult != ConnectivityResult.none;
+  }
+
   Future<void> initializeData() async {
     print('Starting initializeData');
     try {
-      // First get basic car list
-      await getCars();
-      print('Cars loaded: ${_cars.length}');
+      final hasConnection = await _checkConnectivity();
+      if (!hasConnection) {
+        print('No internet connection. Cannot fetch car data.');
+        return;
+      }
 
-      // Just fetch the current vehicle data once
-      print('Fetching vehicle data...');
-      await fetchVehicleData();
-      print(
-          'Vehicle data loaded. Current vehicles in data: ${_vehiclesData.keys}');
+      // First check if user is logged in
+      if (Globals.userId == null) {
+        print('No user ID available, fetching all cars...');
+        await getCars();  // Get all cars if user not logged in
+        print('All cars loaded: ${_cars.length}');
+      } else {
+        print('User logged in, fetching assigned vehicles...');
+        // Get vehicle data for logged-in user
+        await fetchVehicleData();
+        print('Vehicle data loaded. Current vehicles in data: ${_vehiclesData.keys}');
+      }
+
     } catch (e) {
       print('Error in initializeData: $e');
       rethrow;
@@ -37,6 +52,11 @@ class CarServices {
 
   Future<void> getCars() async {
     try {
+      final hasConnection = await _checkConnectivity();
+      if (!hasConnection) {
+        throw Exception('No internet connection');
+      }
+
       final response = await http.post(
         Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
@@ -50,76 +70,71 @@ class CarServices {
       if (response.statusCode == 200) {
         List<dynamic> jsonData = jsonDecode(response.body);
         _cars = jsonData.map((json) => Car.fromJson(json)).toList();
+        print('Fetched ${_cars.length} cars');
       } else {
         throw Exception('Failed to load cars: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Error fetching cars: $e');
+      print('Error in getCars: $e');
+      rethrow;
     }
   }
 
-  // Future<void> _loadVehicleData() async {
-  //   if (Globals.userId == null) {
-  //     print('No user ID available, skipping vehicle data load');
-  //     return;
-  //   }
-
-  //   try {
-  //     _vehicleData = await fetchVehicleData();
-  //   } catch (e) {
-  //     print('Error loading vehicle data: $e');
-  //     // Don't rethrow - we want the app to continue even if detailed data fails to load
-  //   }
-  // }
-
   Future<void> fetchVehicleData() async {
     try {
-        final response = await http.post(
-            Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
-            headers: <String, String>{
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: {
-                'action': 'driver-vehicle-data2',
-                'driver': Globals.userId.toString(),
-            },
-        );
+      final hasConnection = await _checkConnectivity();
+      if (!hasConnection) {
+        throw Exception('No internet connection');
+      }
 
-        print('Vehicle Data Response Status: ${response.statusCode}');
-        print('Vehicle Data Response: ${response.body}');
+      final response = await http.post(
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
+        headers: <String, String>{
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: {
+          'action': 'driver-vehicle-data2',
+          'driver': Globals.userId.toString(),
+        },
+      );
 
-        if (response.statusCode == 200 && response.body.isNotEmpty) {
-            var jsonData = jsonDecode(response.body);
+      print('Vehicle Data Response Status: ${response.statusCode}');
+      print('Vehicle Data Response: ${response.body}');
 
-            if (jsonData.containsKey('error')) {
-                print('Error in response: ${jsonData['error']}');
-                return;
-            }
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        var jsonData = jsonDecode(response.body);
 
-            // Only fetch and store the vehicle data if it exists
-            if (jsonData.containsKey('vehicle')) {
-                final vehicleId = jsonData['vehicle']['vehicle_id'];
-                final vehicleData = VehicleData.fromJson(jsonData);
-                _vehiclesData[vehicleId] = vehicleData;
-
-                // Now filter the cars to include only the vehicles assigned to this driver
-                _cars = [Car(id: vehicleId, name: vehicleData.name, numberPlate: vehicleData.numberPlate)];
-                print('Stored data for vehicle ID $vehicleId with KM: ${vehicleData.km}');
-            }
+        if (jsonData.containsKey('error')) {
+          print('Error in response: ${jsonData['error']}');
+          return;
         }
-    } catch (e) {
-        print('Error fetching vehicle data: $e');
-    }
-}
 
+        if (jsonData.containsKey('vehicle')) {
+          final vehicleId = jsonData['vehicle']['vehicle_id'];
+          final vehicleData = VehicleData.fromJson(jsonData);
+          _vehiclesData[vehicleId] = vehicleData;
+
+          // Update cars list with assigned vehicle
+          _cars = [
+            Car(
+              id: vehicleId,
+              name: vehicleData.name,
+              numberPlate: vehicleData.numberPlate,
+            )
+          ];
+          print('Stored data for vehicle ID $vehicleId with KM: ${vehicleData.km}');
+        }
+      }
+    } catch (e) {
+      print('Error in fetchVehicleData: $e');
+      rethrow;
+    }
+  }
 
   int? getLastKmForVehicle(int vehicleId) {
-    // If this is the vehicle we have data for, return its KM
     if (_vehiclesData.containsKey(vehicleId)) {
       return _vehiclesData[vehicleId]?.km;
     }
-
-    // Otherwise return null
     return null;
   }
 
@@ -131,6 +146,11 @@ class CarServices {
 
   Future<bool> getLastKm(int driverId, int vehicleId) async {
     try {
+      final hasConnection = await _checkConnectivity();
+      if (!hasConnection) {
+        throw Exception('No internet connection');
+      }
+
       final response = await http.post(
         Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
@@ -148,8 +168,7 @@ class CarServices {
         if (data is bool && data == false) {
           _lastKm = 0;
           return true;
-        } else if (data != null &&
-            (data is int || int.tryParse(data.toString()) != null)) {
+        } else if (data != null && (data is int || int.tryParse(data.toString()) != null)) {
           _lastKm = int.parse(data.toString());
           return true;
         } else {
@@ -159,7 +178,73 @@ class CarServices {
         throw Exception('Failed to load last KM: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Error fetching last KM: $e');
+      print('Error fetching last KM: $e');
+      rethrow;
+    }
+  }
+
+  // Cache management methods
+  Future<void> _cacheData() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      // Cache cars
+      if (_cars.isNotEmpty) {
+        await prefs.setString('cached_cars', jsonEncode(_cars.map((car) => {
+          'id': car.id,
+          'name': car.name,
+          'numberplate': car.numberPlate,
+        }).toList()));
+      }
+
+      // Cache vehicle data
+      if (_vehiclesData.isNotEmpty) {
+        final vehicleDataMap = _vehiclesData.map((key, value) =>
+            MapEntry(key.toString(), value.toJson()));
+        await prefs.setString('cached_vehicle_data', jsonEncode(vehicleDataMap));
+      }
+    } catch (e) {
+      print('Error caching data: $e');
+    }
+  }
+
+  Future<void> _loadCachedData() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      // Load cached cars
+      final cachedCarsString = prefs.getString('cached_cars');
+      if (cachedCarsString != null) {
+        final List<dynamic> cachedCars = jsonDecode(cachedCarsString);
+        _cars = cachedCars.map((carJson) => Car.fromJson(carJson)).toList();
+        print('Loaded ${_cars.length} cars from cache');
+      }
+
+      // Load cached vehicle data
+      final cachedVehicleDataString = prefs.getString('cached_vehicle_data');
+      if (cachedVehicleDataString != null) {
+        final Map<String, dynamic> cachedVehicleData =
+        jsonDecode(cachedVehicleDataString);
+        _vehiclesData = Map.fromEntries(
+            cachedVehicleData.entries.map((entry) =>
+                MapEntry(int.parse(entry.key), VehicleData.fromJson(entry.value)))
+        );
+        print('Loaded ${_vehiclesData.length} vehicle data from cache');
+      }
+    } catch (e) {
+      print('Error loading cached data: $e');
+    }
+  }
+
+  // Method to clear cache
+  Future<void> clearCache() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.remove('cached_cars');
+      await prefs.remove('cached_vehicle_data');
+      print('Cache cleared successfully');
+    } catch (e) {
+      print('Error clearing cache: $e');
     }
   }
 }
