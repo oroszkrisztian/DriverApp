@@ -1,16 +1,10 @@
-# app
+# FGreenFleet-DriverApp
 
-A new Flutter project.
+Inditas utan mindig meg kell csinalni a pull:  
+git -C lib/ pull  
 
-## Getting Started
+Miutan befejezted a modositast:  
+git add lib/  
+git commit -m "message"  
+git push 
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
