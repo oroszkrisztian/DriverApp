@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'globals.dart'; // Assuming you have a globals.dart file for global variables
+import 'globals.dart';
+import 'models/no_internet_widget.dart';
 
 class LogEntry {
   final String date;
@@ -43,9 +45,7 @@ class LogEntry {
   }
 
   String calculateTotalTime() {
-    if (from.isEmpty || to.isEmpty) {
-      return '';
-    }
+    if (from.isEmpty || to.isEmpty) return '';
     try {
       final DateFormat format = DateFormat('HH:mm');
       final DateTime startTime = format.parse(from);
@@ -95,14 +95,34 @@ class _MyLogPageState extends State<MyLogPage> {
   DateTime? _startDate;
   DateTime? _endDate;
   Vehicle? _selectedVehicle;
-  final String baseUrl = 'https://vinczefi.com'; // Define your base URL here
+  final String baseUrl = 'https://vinczefi.com';
   int? _selectedCarId;
   bool _isLoading = false;
+  bool _hasInternet = true;
+
+  Future<bool> _checkInternet() async {
+    try {
+      final result = await InternetAddress.lookup('example.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _initializeData() async {
+    bool hasInternet = await _checkInternet();
+    setState(() {
+      _hasInternet = hasInternet;
+    });
+    if (hasInternet) {
+      await _fetchVehicles();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _fetchVehicles();
+    _initializeData();
   }
 
   Future<void> _fetchVehicles() async {
@@ -123,7 +143,7 @@ class _MyLogPageState extends State<MyLogPage> {
       if (response.statusCode == 200) {
         List<dynamic> jsonData = jsonDecode(response.body);
         List<Vehicle> vehicles =
-        jsonData.map((json) => Vehicle.fromJson(json)).toList();
+            jsonData.map((json) => Vehicle.fromJson(json)).toList();
 
         setState(() {
           _vehicles = vehicles;
@@ -141,7 +161,9 @@ class _MyLogPageState extends State<MyLogPage> {
         _fetchLogData();
       } else {
         print('Failed to load vehicles: ${response.statusCode}');
-        _isLoading = false;
+        setState(() {
+          _isLoading = false;
+        });
       }
     } catch (e) {
       print('Error fetching vehicles: $e');
@@ -152,9 +174,7 @@ class _MyLogPageState extends State<MyLogPage> {
   }
 
   Future<void> _fetchLogData() async {
-    if (_startDate == null || _endDate == null) {
-      return;
-    }
+    if (_startDate == null || _endDate == null) return;
 
     setState(() {
       _isLoading = true;
@@ -202,10 +222,10 @@ class _MyLogPageState extends State<MyLogPage> {
 
   void _sortLogData() {
     _logData.sort((a, b) {
-      DateTime dateTimeA = DateFormat('yyyy-MM-dd HH:mm')
-          .parse('${a.date} ${a.from}');
-      DateTime dateTimeB = DateFormat('yyyy-MM-dd HH:mm')
-          .parse('${b.date} ${b.from}');
+      DateTime dateTimeA =
+          DateFormat('yyyy-MM-dd HH:mm').parse('${a.date} ${a.from}');
+      DateTime dateTimeB =
+          DateFormat('yyyy-MM-dd HH:mm').parse('${b.date} ${b.from}');
       return dateTimeB.compareTo(dateTimeA);
     });
   }
@@ -312,22 +332,13 @@ class _MyLogPageState extends State<MyLogPage> {
     _fetchLogData().then((_) {
       setState(() {
         _filteredLogData.sort((a, b) {
-          DateTime dateTimeA = DateFormat('yyyy-MM-dd HH:mm')
-              .parse('${a.date} ${a.from}');
-          DateTime dateTimeB = DateFormat('yyyy-MM-dd HH:mm')
-              .parse('${b.date} ${b.from}');
+          DateTime dateTimeA =
+              DateFormat('yyyy-MM-dd HH:mm').parse('${a.date} ${a.from}');
+          DateTime dateTimeB =
+              DateFormat('yyyy-MM-dd HH:mm').parse('${b.date} ${b.from}');
           return dateTimeB.compareTo(dateTimeA);
         });
       });
-    });
-  }
-
-  void _clearFilters() {
-    setState(() {
-      _startDate = null;
-      _endDate = null;
-      _selectedCarId = -1;
-      _filteredLogData = _logData;
     });
   }
 
@@ -351,24 +362,22 @@ class _MyLogPageState extends State<MyLogPage> {
                     itemBuilder: (context, index) {
                       String photo = photoUrls[index];
                       bool isBase64 = photo.startsWith('data:image');
-                      String imageUrl = isBase64
-                          ? photo
-                          : '$baseUrl/$photo'; // Append base URL if it's not a base64 string
+                      String imageUrl = isBase64 ? photo : '$baseUrl/$photo';
 
                       return InteractiveViewer(
                         child: isBase64
                             ? Image.memory(
-                          base64Decode(photo.split(',').last),
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(Icons.error);
-                          },
-                        )
+                                base64Decode(photo.split(',').last),
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Icon(Icons.error);
+                                },
+                              )
                             : Image.network(
-                          imageUrl,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(Icons.error);
-                          },
-                        ),
+                                imageUrl,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Icon(Icons.error);
+                                },
+                              ),
                       );
                     },
                   ),
@@ -377,7 +386,7 @@ class _MyLogPageState extends State<MyLogPage> {
                 ElevatedButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
+                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
                     foregroundColor: Colors.white,
                   ),
                   child: const Text('Close'),
@@ -394,36 +403,204 @@ class _MyLogPageState extends State<MyLogPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Logs'),
+        title: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.assignment, color: Colors.white, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'My Logs',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
+          ],
+        ),
         centerTitle: true,
         backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+        elevation: 0,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const SizedBox(height: 16.0),
-            DateSelectionContainer(
-              startDate: _startDate,
-              endDate: _endDate,
-              vehicles: _vehicles,
-              selectedCarId: _selectedCarId,
-              onSelectStartDate: () => _selectStartDate(context),
-              onSelectEndDate: () => _selectEndDate(context),
-              onVehicleChanged: (newValue) {
-                setState(() {
-                  _selectedCarId = newValue;
-                });
-              },
-              onApplyFilters: _applyFilters,
+      body: !_hasInternet
+          ? NoInternetWidget(
+              onRetry: () => _initializeData(),
+            )
+          : Container(
+              width: double.infinity,
+              height: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.fromARGB(255, 101, 204, 82),
+                    Color.fromARGB(255, 220, 247, 214),
+                  ],
+                ),
+              ),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color.fromARGB(255, 101, 204, 82),
+                        ),
+                      ),
+                    )
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        return SingleChildScrollView(
+                          padding: const EdgeInsets.all(16.0),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight -
+                                  32, // Account for padding
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const SizedBox(height: 16.0),
+                                StyledDateSelectionContainer(
+                                  startDate: _startDate,
+                                  endDate: _endDate,
+                                  vehicles: _vehicles,
+                                  selectedCarId: _selectedCarId,
+                                  onSelectStartDate: () =>
+                                      _selectStartDate(context),
+                                  onSelectEndDate: () =>
+                                      _selectEndDate(context),
+                                  onVehicleChanged: (newValue) {
+                                    setState(() {
+                                      _selectedCarId = newValue;
+                                    });
+                                  },
+                                  onApplyFilters: _applyFilters,
+                                ),
+                                const SizedBox(height: 16.0),
+                                StyledLogDataTable(
+                                  logData: _filteredLogData,
+                                  onImageTap: _showImageDialog,
+                                ),
+                                const SizedBox(height: 16.0),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
-            const SizedBox(height: 16.0),
-            LogDataTable(
-              logData: _filteredLogData,
-              onImageTap: _showImageDialog,
+    );
+  }
+}
+
+class StyledLogDataTable extends StatelessWidget {
+  final List<LogEntry> logData;
+  final ValueChanged<List<String>> onImageTap;
+
+  const StyledLogDataTable({
+    super.key,
+    required this.logData,
+    required this.onImageTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Color.fromARGB(255, 240, 250, 238),
+            ],
+          ),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.format_list_bulleted,
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  size: 24,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Log Entries',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: MaterialStateProperty.all(
+                  const Color.fromARGB(255, 101, 204, 82).withOpacity(0.1),
+                ),
+                dataRowColor: MaterialStateProperty.all(Colors.transparent),
+                columnSpacing: 20,
+                headingTextStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+                dataTextStyle: const TextStyle(
+                  color: Colors.black87,
+                ),
+                columns: const [
+                  DataColumn(label: Text('Date')),
+                  DataColumn(label: Text('Vehicle')),
+                  DataColumn(label: Text('Driver')),
+                  DataColumn(label: Text('From')),
+                  DataColumn(label: Text('To')),
+                  DataColumn(label: Text('Time')),
+                  DataColumn(label: Text('Start KM')),
+                  DataColumn(label: Text('End KM')),
+                  DataColumn(label: Text('Difference')),
+                  DataColumn(label: Text('Photos')),
+                ],
+                rows: logData.map((log) {
+                  final totalTime = log.calculateTotalTime();
+                  final kmDifference = log.calculateKmDifference();
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(log.date)),
+                      DataCell(Text(log.vehicle)),
+                      DataCell(Text(log.driver)),
+                      DataCell(Text(log.from)),
+                      DataCell(Text(log.to)),
+                      DataCell(Text(totalTime)),
+                      DataCell(Text(log.startKm.toString())),
+                      DataCell(Text(log.endKm.toString())),
+                      DataCell(Text(kmDifference)),
+                      DataCell(
+                        log.photos.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(
+                                  Icons.photo_library,
+                                  color: Color.fromARGB(255, 101, 204, 82),
+                                ),
+                                onPressed: () => onImageTap(log.photos),
+                              )
+                            : const Text('No photos'),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
             ),
           ],
         ),
@@ -432,7 +609,7 @@ class _MyLogPageState extends State<MyLogPage> {
   }
 }
 
-class DateSelectionContainer extends StatelessWidget {
+class StyledDateSelectionContainer extends StatelessWidget {
   final DateTime? startDate;
   final DateTime? endDate;
   final List<Vehicle> vehicles;
@@ -442,7 +619,7 @@ class DateSelectionContainer extends StatelessWidget {
   final ValueChanged<int?> onVehicleChanged;
   final VoidCallback onApplyFilters;
 
-  const DateSelectionContainer({
+  const StyledDateSelectionContainer({
     super.key,
     this.startDate,
     this.endDate,
@@ -454,199 +631,199 @@ class DateSelectionContainer extends StatelessWidget {
     required this.onApplyFilters,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20.0),
-        border: Border.all(
-          width: 1,
-          color: Colors.black,
+  Widget _buildDateButton({
+    required VoidCallback onPressed,
+    required String text,
+    required IconData icon,
+  }) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 2,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(
+            color: Color.fromARGB(255, 101, 204, 82),
+            width: 1,
+          ),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.5),
-            spreadRadius: 5,
-            blurRadius: 7,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text(
-            'Date',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.0),
+          Icon(
+            icon,
+            size: 20,
+            color: const Color.fromARGB(255, 101, 204, 82),
           ),
-          const SizedBox(height: 8.0),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: onSelectStartDate,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20.0),
-                  ),
-                ),
-                child: Text(
-                  startDate == null
-                      ? 'From'
-                      : DateFormat('yyyy-MM-dd').format(startDate!),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(width: 16.0),
-              ElevatedButton(
-                onPressed: onSelectEndDate,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20.0),
-                  ),
-                ),
-                child: Text(
-                  endDate == null
-                      ? 'To'
-                      : DateFormat('yyyy-MM-dd').format(endDate!),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16.0),
-          const Text(
-            'Vehicles',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.0),
-          ),
-          const SizedBox(height: 8.0),
-          Center(
-            child: DropdownButton<int>(
-              value: selectedCarId,
-              onChanged: onVehicleChanged,
-              items: vehicles.map((Vehicle car) {
-                return DropdownMenuItem<int>(
-                  value: car.id,
-                  child: Text(
-                    car.id == -1 ? 'All Vehicles' : '${car.name} - ${car.numberPlate}',
-                    style: const TextStyle(color: Colors.black),
-                  ),
-                );
-              }).toList(),
-              hint: Text(
-                selectedCarId == null
-                    ? 'Select Car'
-                    : vehicles.firstWhere((car) => car.id == selectedCarId).name,
-                style: const TextStyle(
-                    color: Colors.black, fontWeight: FontWeight.bold),
-              ),
-              dropdownColor: Colors.white,
-              underline: Container(
-                height: 2,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          Center(
-            child: ElevatedButton(
-              onPressed: onApplyFilters,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color.fromARGB(255, 101, 204, 82),
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20.0),
-                ),
-              ),
-              child: const Text(
-                'Apply Filters',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
       ),
     );
   }
-}
-
-class LogDataTable extends StatelessWidget {
-  final List<LogEntry> logData;
-  final ValueChanged<List<String>> onImageTap;
-
-  const LogDataTable({
-    super.key,
-    required this.logData,
-    required this.onImageTap,
-  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20.0),
-        border: Border.all(
-          width: 1,
-          color: Colors.black,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.5),
-            spreadRadius: 5,
-            blurRadius: 7,
-            offset: const Offset(0, 3),
-          ),
-        ],
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columnSpacing: 20,
-          columns: const [
-            DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Vehicle', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Driver', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('From', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('To', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Time', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Start KM', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('End KM', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Difference', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Photos', style: TextStyle(fontWeight: FontWeight.bold))),
-          ],
-          rows: logData.map((log) {
-            final totalTime = log.calculateTotalTime();
-            final kmDifference = log.calculateKmDifference();
-            return DataRow(
-              cells: [
-                DataCell(Text(log.date)),
-                DataCell(Text(log.vehicle)),
-                DataCell(Text(log.driver)),
-                DataCell(Text(log.from)),
-                DataCell(Text(log.to)),
-                DataCell(Text(totalTime)),
-                DataCell(Text(log.startKm.toString())),
-                DataCell(Text(log.endKm.toString())),
-                DataCell(Text(kmDifference)),
-                DataCell(
-                  log.photos.isNotEmpty
-                      ? GestureDetector(
-                    onTap: () => onImageTap(log.photos),
-                    child: const Icon(Icons.image, color: Colors.green),
-                  )
-                      : const Text('No photos'),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Color.fromARGB(255, 240, 250, 238),
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            // Date Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.date_range,
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Select Date Range',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
                 ),
               ],
-            );
-          }).toList(),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Expanded(
+                  child: _buildDateButton(
+                    onPressed: onSelectStartDate,
+                    text: startDate == null
+                        ? 'Start Date'
+                        : DateFormat('yyyy-MM-dd').format(startDate!),
+                    icon: Icons.calendar_today,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildDateButton(
+                    onPressed: onSelectEndDate,
+                    text: endDate == null
+                        ? 'End Date'
+                        : DateFormat('yyyy-MM-dd').format(endDate!),
+                    icon: Icons.calendar_today,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Vehicle Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.directions_car,
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Select Vehicle',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color.fromARGB(255, 101, 204, 82),
+                  width: 1,
+                ),
+              ),
+              child: DropdownButton<int>(
+                value: selectedCarId,
+                onChanged: onVehicleChanged,
+                items: vehicles.map((Vehicle car) {
+                  return DropdownMenuItem<int>(
+                    value: car.id,
+                    child: Text(
+                      car.id == -1
+                          ? 'All Vehicles'
+                          : '${car.name} - ${car.numberPlate}',
+                      style: const TextStyle(color: Colors.black87),
+                    ),
+                  );
+                }).toList(),
+                isExpanded: true,
+                underline: Container(),
+                icon: const Icon(
+                  Icons.arrow_drop_down,
+                  color: Color.fromARGB(255, 101, 204, 82),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Apply Button
+            ElevatedButton(
+              onPressed: onApplyFilters,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.filter_list),
+                  SizedBox(width: 8),
+                  Text(
+                    'Apply Filters',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
