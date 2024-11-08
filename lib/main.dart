@@ -13,15 +13,16 @@ import 'driverPage.dart'; // Import DriverPage
 // Import LoginPage
 import 'package:workmanager/workmanager.dart';
 
+// Enums and Constants
 enum VehicleOperationType { login, logout }
 
 // Constants for task names
 const String uploadImageTask = "uploadImageTask";
 const String uploadExpenseTask = "uploadExpenseTask";
-
-const String vehicleOperationTask = "vehicleOperationTask";
-
+const String vehicleLoginTask = "vehicleLoginTask";
+const String vehicleLogoutTask = "vehicleLogoutTask";
 const String connectivityCheckTask = "connectivityCheckTask";
+const String operationLockKey = 'operationInProgress';
 
 final CarServices carServices = CarServices();
 
@@ -34,8 +35,12 @@ void callbackDispatcher() {
         return await handleImageUpload(inputData);
       case uploadExpenseTask:
         return await handleExpenseUpload(inputData);
-      case vehicleOperationTask:
-        return await handleVehicleOperation(inputData);
+      case vehicleLoginTask:
+        return await handleVehicleOperation(
+            inputData, VehicleOperationType.login);
+      case vehicleLogoutTask:
+        return await handleVehicleOperation(
+            inputData, VehicleOperationType.logout);
       case connectivityCheckTask:
         return await handleConnectivityCheck();
       default:
@@ -49,24 +54,50 @@ Future<bool> handleConnectivityCheck() async {
     var connectivityResult = await Connectivity().checkConnectivity();
     if (connectivityResult != ConnectivityResult.none) {
       SharedPreferences prefs = await SharedPreferences.getInstance();
-
-      // Check and upload pending vehicle operations
-      String? pendingOperation = prefs.getString('pendingVehicleOperation');
-      if (pendingOperation != null) {
-        Map<String, dynamic> operationData = jsonDecode(pendingOperation);
-        await uploadVehicleOperation(operationData);
-      }
-
-      // Check and upload pending expenses
-      String? pendingExpense = prefs.getString('expensesData');
-      if (pendingExpense != null) {
-        Map<String, dynamic> expenseData = jsonDecode(pendingExpense);
-        await uploadExpense(expenseData);
+      bool isOperationInProgress = prefs.getBool(operationLockKey) ?? false;
+      
+      // Only proceed if no operation is in progress
+      if (!isOperationInProgress) {
+        // Set lock before proceeding
+        await prefs.setBool(operationLockKey, true);
+        
+        try {
+          // Check and upload pending vehicle operations
+          String? pendingOperation = prefs.getString('pendingVehicleOperation');
+          if (pendingOperation != null) {
+            Map<String, dynamic> operationData = jsonDecode(pendingOperation);
+            bool success = await uploadVehicleOperation(operationData);
+            
+            if (success) {
+              await prefs.remove('pendingVehicleOperation');
+              
+              // Handle logout specific cleanup
+              if (operationData['operationType'] == 'logout') {
+                await prefs.remove('isLoggedIn');
+                await prefs.remove('vehicleId');
+                Globals.vehicleID = null;
+              }
+            }
+          }
+          
+          // Check and upload pending expenses
+          String? pendingExpense = prefs.getString('expensesData');
+          if (pendingExpense != null) {
+            Map<String, dynamic> expenseData = jsonDecode(pendingExpense);
+            await uploadExpense(expenseData);
+          }
+        } finally {
+          // Always release the lock when done
+          await prefs.setBool(operationLockKey, false);
+        }
       }
     }
     return true;
   } catch (e) {
     print('Error in connectivity check: $e');
+    // Make sure to release lock even if there's an error
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(operationLockKey, false);
     return false;
   }
 }
@@ -84,44 +115,33 @@ Future<bool> handleImageUpload(Map<String, dynamic>? inputData) async {
 
 // Handling expense upload task
 Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
-  // Check connectivity
   var connectivityResult = await Connectivity().checkConnectivity();
-
-  // If there's no internet connection, do not attempt to upload
   if (connectivityResult == ConnectivityResult.none) {
     print('No internet connection. Saving expense locally.');
-    return false; // Indicate failure due to no connectivity
+    return false;
   }
-
-  // Proceed to upload the expense
   return await uploadExpense(inputData);
 }
 
-Future<bool> handleVehicleOperation(Map<String, dynamic>? inputData) async {
+Future<bool> handleVehicleOperation(
+    Map<String, dynamic>? inputData, VehicleOperationType operationType) async {
   var connectivityResult = await Connectivity().checkConnectivity();
-
   if (connectivityResult == ConnectivityResult.none) {
     print('No internet connection. Saving vehicle operation data locally.');
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
-
-      // Save the operation with its type
       await prefs.setString('pendingVehicleOperation', json.encode(inputData));
-
-      // If it's a logout operation, we want to maintain the logged out state
-      if (inputData?['operationType'] == 'logout') {
+      if (operationType == VehicleOperationType.logout) {
         await prefs.remove('isLoggedIn');
         await prefs.remove('vehicleId');
         Globals.vehicleID = null;
       }
-
       return false;
     } catch (e) {
       print('Error saving vehicle operation data: $e');
       return false;
     }
   }
-
   return await uploadVehicleOperation(inputData);
 }
 
@@ -130,21 +150,18 @@ Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
     print("No input data for vehicle operation");
     return false;
   }
-
   try {
     var request = http.MultipartRequest(
       'POST',
       Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
     );
-
     request.fields['action'] = 'vehicle-login';
     request.fields['driver'] = inputData['driver'] ?? '';
     request.fields['vehicle'] = inputData['vehicle'] ?? '';
     request.fields['km'] = inputData['km'] ?? '';
-    request.fields['datetime'] = inputData['datetime'] ?? ''; // Add this
+    request.fields['datetime'] = inputData['datetime'] ?? '';
 
     var response = await request.send();
-
     if (response.statusCode == 200) {
       print(
           "Vehicle ${inputData['operationType']} operation complete at ${inputData['datetime']}");
@@ -160,7 +177,6 @@ Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
   }
 }
 
-// Function to upload images in the background
 Future<void> uploadImages(Map<String, dynamic>? inputData) async {
   if (inputData == null) {
     print("No input data for image upload");
@@ -177,7 +193,6 @@ Future<void> uploadImages(Map<String, dynamic>? inputData) async {
   request.fields['vehicle'] = inputData['vehicleID'] ?? '';
   request.fields['km'] = inputData['km'] ?? '';
 
-  // Print the fields to the console
   print('Action: ${request.fields['action']}');
   print('Driver ID: ${request.fields['driver']}');
   print('Vehicle ID: ${request.fields['vehicle']}');
@@ -203,11 +218,10 @@ Future<void> uploadImages(Map<String, dynamic>? inputData) async {
   }
 }
 
-// Function to upload expenses in the background
 Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
   if (inputData == null) {
     print("No input data for expense upload");
-    return false; // Indicate failure
+    return false;
   }
 
   var request = http.MultipartRequest(
@@ -224,6 +238,7 @@ Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
   request.fields['cost'] = inputData['cost'] ?? '';
 
   String? imagePath = inputData['image'];
+
   if (imagePath != null && imagePath.isNotEmpty) {
     request.files.add(await http.MultipartFile.fromPath('photo', imagePath));
   }
@@ -232,66 +247,36 @@ Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
     var response = await request.send();
     if (response.statusCode == 200) {
       print('Expense uploaded successfully in the background');
-      return true; // Indicate success
+      return true;
     } else {
-      print(
-          'Failed to upload expense in the background: ${response.statusCode}');
-      return false; // Indicate failure
+      print('Failed to upload expense in the background: ${response.statusCode}');
+      return false;
     }
   } catch (e) {
     print('Error uploading expense in background: $e');
-    return false; // Indicate failure
+    return false;
   }
-
-  // Save to SharedPreferences if upload fails
-// Indicate failure
 }
 
 Future<void> _uploadSavedExpenses() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
   String? expenseData = prefs.getString("expensesData");
-
   if (expenseData != null) {
     print("Attempting to send saved expenses...");
     Map<String, dynamic> inputData = jsonDecode(expenseData);
-
-    await uploadExpense(inputData);
-
-    // Clear saved expense data after sending
-    await prefs.remove("expensesData");
-  }
-}
-
-Future<void> _uploadSavedVehicleOperation() async {
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  String? savedOperationData = prefs.getString('pendingVehicleOperation');
-
-  if (savedOperationData != null) {
-    Map<String, dynamic> operationData = jsonDecode(savedOperationData);
-    String operationType = operationData['operationType'] ?? 'unknown';
-
-    print("Processing pending vehicle $operationType operation...");
-
-    bool success = await uploadVehicleOperation(operationData);
+    bool success = await uploadExpense(inputData);
     if (success) {
-      await prefs.remove('pendingVehicleOperation');
-
-      // If it was a successful logout operation, ensure local state is cleared
-      if (operationType == 'logout') {
-        //await prefs.remove('isLoggedIn');
-        await prefs.remove('vehicleId');
-        Globals.vehicleID = null;
-      }
+      await prefs.remove("expensesData");
     }
   }
 }
 
-// Function to handle vehicle login
 
 Future<void> loginVehicle() async {
   try {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    String currentDateTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    String currentDateTime =
+        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
     Map<String, dynamic> operationData = {
       'driver': Globals.userId.toString(),
@@ -302,8 +287,8 @@ Future<void> loginVehicle() async {
     };
 
     await Workmanager().registerOneOffTask(
-      "vehicleOperation_${DateTime.now().millisecondsSinceEpoch}",
-      vehicleOperationTask,
+      "vehicleLogin_${DateTime.now().millisecondsSinceEpoch}",
+      vehicleLoginTask,
       inputData: operationData,
       constraints: Constraints(
         networkType: NetworkType.connected,
@@ -324,42 +309,28 @@ Future<void> loginVehicle() async {
 Future<void> logoutVehicle() async {
   try {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-
-    String userId = Globals.userId.toString();
-    String vehicleId = Globals.vehicleID.toString();
-
-    // Get current datetime in the required format
-    String currentDateTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    String currentDateTime =
+        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
     Map<String, dynamic> operationData = {
-      'driver': userId,
-      'vehicle': vehicleId,
+      'driver': Globals.userId.toString(),
+      'vehicle': Globals.vehicleID.toString(),
       'km': Globals.kmValue.toString(),
       'operationType': 'logout',
       'datetime': currentDateTime,
     };
 
     await Workmanager().registerOneOffTask(
-      "vehicleOperation_${DateTime.now().millisecondsSinceEpoch}",
-      vehicleOperationTask,
+      "vehicleLogout_${DateTime.now().millisecondsSinceEpoch}",
+      vehicleLogoutTask,
       inputData: operationData,
       constraints: Constraints(
         networkType: NetworkType.connected,
         requiresBatteryNotLow: true,
       ),
-      existingWorkPolicy: ExistingWorkPolicy.append,  // Allow multiple tasks to queue
+      existingWorkPolicy: ExistingWorkPolicy.append,
     );
 
-    // Clear local state
-    await prefs.remove('vehicleId');
-    await prefs.remove('image1');
-    await prefs.remove('image2');
-    await prefs.remove('image3');
-    await prefs.remove('image4');
-    await prefs.remove('image5');
-    Globals.vehicleID = null;
-
-    // Save operation data locally in case immediate upload fails
     await prefs.setString('pendingVehicleOperation', jsonEncode(operationData));
 
     print("Vehicle logout operation scheduled for: $currentDateTime");
@@ -369,38 +340,43 @@ Future<void> logoutVehicle() async {
 }
 
 void _listenForConnectivityChanges() {
-  Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+  Connectivity().onConnectivityChanged.listen((ConnectivityResult result) async {
     if (result != ConnectivityResult.none) {
-      // If connected to the internet, attempt to send saved expenses
-      _uploadSavedExpenses();
-      _uploadSavedVehicleOperation();
+      // Only handle expenses in the connectivity listener
+      await _uploadSavedExpenses();
     }
   });
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  // Reset any stale locks on app start
+  await prefs.setBool(operationLockKey, false);
+  
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
   // Register the periodic connectivity check
   await Workmanager().registerPeriodicTask(
     "connectivityCheck",
     connectivityCheckTask,
-    frequency: const Duration(minutes: 15),  // Minimum interval allowed
+    frequency: const Duration(minutes: 15),
     constraints: Constraints(
-      networkType: NetworkType.connected,    // Only run when network is available
-      requiresBatteryNotLow: true,          // Don't run on low battery
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: true,
     ),
     existingWorkPolicy: ExistingWorkPolicy.replace,
   );
 
-  SharedPreferences prefs = await SharedPreferences.getInstance();
   bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
   if (isLoggedIn) {
     Globals.userId = int.tryParse(prefs.getString('userId') ?? '');
     Globals.vehicleID = prefs.getInt('vehicleId');
+
     print('User ID loaded: ${Globals.userId}');
+
     _loadImagesFromPrefs();
 
     try {
@@ -417,15 +393,13 @@ void main() async {
 }
 
 Future<void> schedulePeriodicUpload() async {
-  // Register the periodic task to upload expenses
   Workmanager().registerPeriodicTask(
     "uploadExpenseTaskId",
     uploadExpenseTask,
-    frequency: const Duration(minutes: 15), // Minimum 15 minutes
-    inputData: {}, // If needed, add any required input data here
+    frequency: const Duration(minutes: 15),
+    inputData: {},
   );
 }
-
 // Function to load images from SharedPreferences
 Future<void> _loadImagesFromPrefs() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -634,6 +608,7 @@ class _MyHomePageState extends State<MyHomePage> {
       );
 
       print(Globals.userId);
+      await carServices.initializeData();
 
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
