@@ -23,6 +23,8 @@ const String vehicleLoginTask = "vehicleLoginTask";
 const String vehicleLogoutTask = "vehicleLogoutTask";
 const String connectivityCheckTask = "connectivityCheckTask";
 const String operationLockKey = 'operationInProgress';
+const String imageUploadLockKey = 'imageUploadInProgress';
+const String pendingImagesKey = 'pendingImages';
 
 final CarServices carServices = CarServices();
 
@@ -55,23 +57,30 @@ Future<bool> handleConnectivityCheck() async {
     if (connectivityResult != ConnectivityResult.none) {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       bool isOperationInProgress = prefs.getBool(operationLockKey) ?? false;
-      
-      // Only proceed if no operation is in progress
+
       if (!isOperationInProgress) {
-        // Set lock before proceeding
         await prefs.setBool(operationLockKey, true);
-        
+
         try {
+          // Check for pending images first
+          String? pendingImages = prefs.getString(pendingImagesKey);
+          bool isImageUploadInProgress =
+              prefs.getBool(imageUploadLockKey) ?? false;
+
+          if (pendingImages != null && !isImageUploadInProgress) {
+            Map<String, dynamic> imageData = jsonDecode(pendingImages);
+            await handleImageUpload(imageData);
+          }
+
           // Check and upload pending vehicle operations
           String? pendingOperation = prefs.getString('pendingVehicleOperation');
           if (pendingOperation != null) {
             Map<String, dynamic> operationData = jsonDecode(pendingOperation);
             bool success = await uploadVehicleOperation(operationData);
-            
+
             if (success) {
               await prefs.remove('pendingVehicleOperation');
-              
-              // Handle logout specific cleanup
+
               if (operationData['operationType'] == 'logout') {
                 await prefs.remove('isLoggedIn');
                 await prefs.remove('vehicleId');
@@ -79,7 +88,7 @@ Future<bool> handleConnectivityCheck() async {
               }
             }
           }
-          
+
           // Check and upload pending expenses
           String? pendingExpense = prefs.getString('expensesData');
           if (pendingExpense != null) {
@@ -87,7 +96,6 @@ Future<bool> handleConnectivityCheck() async {
             await uploadExpense(expenseData);
           }
         } finally {
-          // Always release the lock when done
           await prefs.setBool(operationLockKey, false);
         }
       }
@@ -95,7 +103,6 @@ Future<bool> handleConnectivityCheck() async {
     return true;
   } catch (e) {
     print('Error in connectivity check: $e');
-    // Make sure to release lock even if there's an error
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool(operationLockKey, false);
     return false;
@@ -104,12 +111,35 @@ Future<bool> handleConnectivityCheck() async {
 
 // Handling image upload task
 Future<bool> handleImageUpload(Map<String, dynamic>? inputData) async {
+  if (inputData == null) {
+    print("No input data for image upload");
+    return false;
+  }
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  bool isUploadInProgress = prefs.getBool(imageUploadLockKey) ?? false;
+
+  if (isUploadInProgress) {
+    print("Another image upload is in progress");
+    return false;
+  }
+
   try {
-    await uploadImages(inputData);
-    return Future.value(true);
+    await prefs.setBool(imageUploadLockKey, true);
+    await prefs.setString(pendingImagesKey, jsonEncode(inputData));
+
+    bool success = await uploadImages(inputData);
+
+    if (success) {
+      await prefs.remove(pendingImagesKey);
+    }
+
+    return success;
   } catch (e) {
     print('Error in image upload task: $e');
-    return Future.value(false);
+    return false;
+  } finally {
+    await prefs.setBool(imageUploadLockKey, false);
   }
 }
 
@@ -132,8 +162,8 @@ Future<bool> handleVehicleOperation(
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString('pendingVehicleOperation', json.encode(inputData));
       if (operationType == VehicleOperationType.logout) {
-        await prefs.remove('isLoggedIn');
-        await prefs.remove('vehicleId');
+        //await prefs.remove('isLoggedIn');
+        //await prefs.remove('vehicleId');
         Globals.vehicleID = null;
       }
       return false;
@@ -177,44 +207,47 @@ Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
   }
 }
 
-Future<void> uploadImages(Map<String, dynamic>? inputData) async {
+Future<bool> uploadImages(Map<String, dynamic>? inputData) async {
   if (inputData == null) {
     print("No input data for image upload");
-    return;
-  }
-
-  var request = http.MultipartRequest(
-    'POST',
-    Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-  );
-
-  request.fields['action'] = 'photo-upload';
-  request.fields['driver'] = inputData['userId'] ?? '';
-  request.fields['vehicle'] = inputData['vehicleID'] ?? '';
-  request.fields['km'] = inputData['km'] ?? '';
-
-  print('Action: ${request.fields['action']}');
-  print('Driver ID: ${request.fields['driver']}');
-  print('Vehicle ID: ${request.fields['vehicle']}');
-  print('KM: ${request.fields['km']}');
-
-  for (int i = 1; i <= 6; i++) {
-    String? imagePath = inputData['image$i'];
-    if (imagePath != null && imagePath.isNotEmpty) {
-      request.files
-          .add(await http.MultipartFile.fromPath('photo$i', imagePath));
-    }
+    return false;
   }
 
   try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
+    );
+
+    request.fields['action'] = 'photo-upload';
+    request.fields['driver'] = inputData['userId'] ?? '';
+    request.fields['vehicle'] = inputData['vehicleID'] ?? '';
+    request.fields['km'] = inputData['km'] ?? '';
+
+    print('Action: ${request.fields['action']}');
+    print('Driver ID: ${request.fields['driver']}');
+    print('Vehicle ID: ${request.fields['vehicle']}');
+    print('KM: ${request.fields['km']}');
+
+    for (int i = 1; i <= 6; i++) {
+      String? imagePath = inputData['image$i'];
+      if (imagePath != null && imagePath.isNotEmpty) {
+        request.files
+            .add(await http.MultipartFile.fromPath('photo$i', imagePath));
+      }
+    }
+
     var response = await request.send();
     if (response.statusCode == 200) {
       print("Image upload complete");
+      return true;
     } else {
       print("Image upload failed: ${response.statusCode}");
+      return false;
     }
   } catch (e) {
     print('Error uploading images: $e');
+    return false;
   }
 }
 
@@ -249,7 +282,8 @@ Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
       print('Expense uploaded successfully in the background');
       return true;
     } else {
-      print('Failed to upload expense in the background: ${response.statusCode}');
+      print(
+          'Failed to upload expense in the background: ${response.statusCode}');
       return false;
     }
   } catch (e) {
@@ -270,7 +304,6 @@ Future<void> _uploadSavedExpenses() async {
     }
   }
 }
-
 
 Future<void> loginVehicle() async {
   try {
@@ -340,7 +373,9 @@ Future<void> logoutVehicle() async {
 }
 
 void _listenForConnectivityChanges() {
-  Connectivity().onConnectivityChanged.listen((ConnectivityResult result) async {
+  Connectivity()
+      .onConnectivityChanged
+      .listen((ConnectivityResult result) async {
     if (result != ConnectivityResult.none) {
       // Only handle expenses in the connectivity listener
       await _uploadSavedExpenses();
@@ -350,11 +385,12 @@ void _listenForConnectivityChanges() {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   SharedPreferences prefs = await SharedPreferences.getInstance();
   // Reset any stale locks on app start
   await prefs.setBool(operationLockKey, false);
-  
+  await prefs.setBool(imageUploadLockKey, false);
+
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
   // Register the periodic connectivity check
@@ -392,6 +428,23 @@ void main() async {
   runApp(MyApp(isLoggedIn: isLoggedIn));
 }
 
+Future<void> _loadImagesFromPrefs() async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String? pendingImages = prefs.getString(pendingImagesKey);
+
+  if (pendingImages != null) {
+    Map<String, dynamic> imageData = jsonDecode(pendingImages);
+    if (imageData['type'] == 'login') {
+      Globals.image1 = File(imageData['image1']);
+      Globals.image2 = File(imageData['image2']);
+      Globals.image3 = File(imageData['image3']);
+      Globals.image4 = File(imageData['image4']);
+      Globals.image5 = File(imageData['image5']);
+      Globals.parcursIn = File(imageData['image6']);
+    }
+  }
+}
+
 Future<void> schedulePeriodicUpload() async {
   Workmanager().registerPeriodicTask(
     "uploadExpenseTaskId",
@@ -400,36 +453,37 @@ Future<void> schedulePeriodicUpload() async {
     inputData: {},
   );
 }
-// Function to load images from SharedPreferences
-Future<void> _loadImagesFromPrefs() async {
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  String? imagePath1 = prefs.getString('image1');
-  String? imagePath2 = prefs.getString('image2');
-  String? imagePath3 = prefs.getString('image3');
-  String? imagePath4 = prefs.getString('image4');
-  String? imagePath5 = prefs.getString('image5');
-  String? imagePath6 = prefs.getString('image6');
-  String? imagePath7 = prefs.getString('image7');
-  String? imagePath8 = prefs.getString('image8');
-  String? imagePath9 = prefs.getString('image9');
-  String? imagePath10 = prefs.getString('image10');
-  String? imagePathParcursIn = prefs.getString('parcursIn');
-  String? imagePathParcursOut = prefs.getString('parcursout');
 
-  if (imagePath1 != null) Globals.image1 = File(imagePath1);
-  if (imagePath2 != null) Globals.image2 = File(imagePath2);
-  if (imagePath3 != null) Globals.image3 = File(imagePath3);
-  if (imagePath4 != null) Globals.image4 = File(imagePath4);
-  if (imagePath5 != null) Globals.image5 = File(imagePath5);
-  if (imagePath6 != null) Globals.image6 = File(imagePath6);
-  if (imagePath7 != null) Globals.image7 = File(imagePath7);
-  if (imagePath8 != null) Globals.image8 = File(imagePath8);
-  if (imagePath9 != null) Globals.image9 = File(imagePath9);
-  if (imagePath10 != null) Globals.image10 = File(imagePath10);
-  if (imagePathParcursIn != null) Globals.parcursIn = File(imagePathParcursIn);
-  if (imagePathParcursOut != null)
-    Globals.parcursIn = File(imagePathParcursOut);
-}
+// Function to load images from SharedPreferences
+// Future<void> _loadImagesFromPrefs() async {
+//   SharedPreferences prefs = await SharedPreferences.getInstance();
+//   String? imagePath1 = prefs.getString('image1');
+//   String? imagePath2 = prefs.getString('image2');
+//   String? imagePath3 = prefs.getString('image3');
+//   String? imagePath4 = prefs.getString('image4');
+//   String? imagePath5 = prefs.getString('image5');
+//   String? imagePath6 = prefs.getString('image6');
+//   String? imagePath7 = prefs.getString('image7');
+//   String? imagePath8 = prefs.getString('image8');
+//   String? imagePath9 = prefs.getString('image9');
+//   String? imagePath10 = prefs.getString('image10');
+//   String? imagePathParcursIn = prefs.getString('parcursIn');
+//   String? imagePathParcursOut = prefs.getString('parcursout');
+
+//   if (imagePath1 != null) Globals.image1 = File(imagePath1);
+//   if (imagePath2 != null) Globals.image2 = File(imagePath2);
+//   if (imagePath3 != null) Globals.image3 = File(imagePath3);
+//   if (imagePath4 != null) Globals.image4 = File(imagePath4);
+//   if (imagePath5 != null) Globals.image5 = File(imagePath5);
+//   if (imagePath6 != null) Globals.image6 = File(imagePath6);
+//   if (imagePath7 != null) Globals.image7 = File(imagePath7);
+//   if (imagePath8 != null) Globals.image8 = File(imagePath8);
+//   if (imagePath9 != null) Globals.image9 = File(imagePath9);
+//   if (imagePath10 != null) Globals.image10 = File(imagePath10);
+//   if (imagePathParcursIn != null) Globals.parcursIn = File(imagePathParcursIn);
+//   if (imagePathParcursOut != null)
+//     Globals.parcursIn = File(imagePathParcursOut);
+// }
 
 class InitialLoadingScreen extends StatefulWidget {
   final bool isLoggedIn;

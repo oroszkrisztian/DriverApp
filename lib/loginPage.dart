@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:app/models/cars_model.dart';
 import 'package:app/services/car_services.dart';
 import 'package:flutter/material.dart';
@@ -235,6 +237,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _submitData() async {
+    // Initial validation checks
     if (_selectedCarId == null || _kmController.text.isEmpty) {
       showDialog(
         context: context,
@@ -256,6 +259,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    // Check for required images
     if (_image1 == null ||
         _image2 == null ||
         _image3 == null ||
@@ -282,81 +286,116 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    Globals.image1 = _image1;
-    Globals.image2 = _image2;
-    Globals.image3 = _image3;
-    Globals.image4 = _image4;
-    Globals.image5 = _image5;
-    Globals.parcursIn = parcursIn;
-    Globals.vehicleID = _selectedCarId;
-    Globals.kmValue = _kmController.text;
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
 
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', true);
-    await prefs.setInt('vehicleId', Globals.vehicleID!);
+      // Store images in Globals
+      Globals.image1 = _image1;
+      Globals.image2 = _image2;
+      Globals.image3 = _image3;
+      Globals.image4 = _image4;
+      Globals.image5 = _image5;
+      Globals.parcursIn = parcursIn;
+      Globals.vehicleID = _selectedCarId;
+      Globals.kmValue = _kmController.text;
 
-    await prefs.setString('image1', _image1!.path);
-    await prefs.setString('image2', _image2!.path);
-    await prefs.setString('image3', _image3!.path);
-    await prefs.setString('image4', _image4!.path);
-    await prefs.setString('image5', _image5!.path);
-    await prefs.setString('parcursIn', parcursIn!.path);
-
-    _lastKm ??= 0;
-
-    if (int.tryParse(_kmController.text) != null) {
-      int userInputKm = int.parse(_kmController.text);
-
-      if (userInputKm < _lastKm!) {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: const Text('Error'),
-              content: Text(
-                  'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
-        );
-        return;
-      }
-    }
-
-    _showLoggingDialog();
-    await loginVehicle(); // Make sure this function exists
-
-    Workmanager().registerOneOffTask(
-      "1",
-      uploadImageTask,
-      inputData: {
+      // Prepare login images data
+      Map<String, dynamic> loginImages = {
         'userId': Globals.userId.toString(),
-        'vehicleID': Globals.vehicleID.toString(),
+        'vehicleID': _selectedCarId.toString(),
         'km': _kmController.text,
-        'image1': Globals.image1?.path,
-        'image2': Globals.image2?.path,
-        'image3': Globals.image3?.path,
-        'image4': Globals.image4?.path,
-        'image5': Globals.image5?.path,
-        'image6': Globals.parcursIn?.path
-      },
-    );
+        'image1': _image1!.path,
+        'image2': _image2!.path,
+        'image3': _image3!.path,
+        'image4': _image4!.path,
+        'image5': _image5!.path,
+        'image6': parcursIn!.path,
+        'type': 'login',
+        'timestamp': DateTime.now().toIso8601String()
+      };
 
-    _hideLoggingDialog();
+      // Save login state and data
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setInt('vehicleId', _selectedCarId!);
+      await prefs.setString(pendingImagesKey, jsonEncode(loginImages));
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const DriverPage(),
-      ),
-    );
+      // KM validation
+      _lastKm ??= 0;
+      if (int.tryParse(_kmController.text) != null) {
+        int userInputKm = int.parse(_kmController.text);
+        if (userInputKm < _lastKm!) {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text('Error'),
+                content: Text(
+                    'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('OK'),
+                  ),
+                ],
+              );
+            },
+          );
+          return;
+        }
+      }
+
+      _showLoggingDialog();
+
+      // Perform vehicle login
+      await loginVehicle();
+
+      // Schedule image upload task
+      await Workmanager().registerOneOffTask(
+          "imageUpload_login_${DateTime.now().millisecondsSinceEpoch}",
+          uploadImageTask,
+          inputData: loginImages,
+          constraints: Constraints(
+            networkType: NetworkType.connected,
+            requiresBatteryNotLow: true,
+          ),
+          existingWorkPolicy: ExistingWorkPolicy.append,
+          backoffPolicy: BackoffPolicy.linear,
+          backoffPolicyDelay: const Duration(seconds: 30));
+
+      _hideLoggingDialog();
+
+      // Navigate to driver page
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DriverPage()),
+      );
+    } catch (e) {
+      print('Error in login submit data: $e');
+      // Hide loading dialog if showing
+      _hideLoggingDialog();
+
+      // Show error to user
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Error'),
+            content: const Text(
+                'An error occurred while logging in. Please try again.'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    }
   }
 
   @override
@@ -608,8 +647,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-
-
 
                 const SizedBox(height: 16),
 

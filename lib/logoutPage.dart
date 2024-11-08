@@ -224,55 +224,59 @@ class _LogoutPageState extends State<LogoutPage> {
   }
 
   Future<void> _submitData() async {
-    if (_kmController.text.isEmpty) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Error'),
-            content: const Text('Please enter the KM.'),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-      return;
-    }
+  // Initial validation
+  if (_kmController.text.isEmpty) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Error'),
+          content: const Text('Please enter the KM.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+    return;
+  }
 
-    // Check if all images have been taken
-    if (_image6 == null ||
-        _image7 == null ||
-        _image8 == null ||
-        _image9 == null ||
-        _image10 == null ||
-        parcursOut == null) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Error'),
-            content: const Text('Please take all required pictures.'),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-      return;
-    }
+  // Check for required images
+  if (_image6 == null ||
+      _image7 == null ||
+      _image8 == null ||
+      _image9 == null ||
+      _image10 == null ||
+      parcursOut == null) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Error'),
+          content: const Text('Please take all required pictures.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+    return;
+  }
 
-    // Store the images and KM in Globals
+  try {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Store images in Globals
     Globals.image6 = _image6;
     Globals.image7 = _image7;
     Globals.image8 = _image8;
@@ -281,7 +285,25 @@ class _LogoutPageState extends State<LogoutPage> {
     Globals.parcursOut = parcursOut;
     Globals.kmValue = _kmController.text;
 
-    // Get stored vehicle data
+    // Prepare logout images data
+    Map<String, dynamic> logoutImages = {
+      'userId': Globals.userId.toString(),
+      'vehicleID': Globals.vehicleID.toString(),
+      'km': _kmController.text,
+      'image1': _image6!.path,
+      'image2': _image7!.path,
+      'image3': _image8!.path,
+      'image4': _image9!.path,
+      'image5': _image10!.path,
+      'image6': parcursOut!.path,
+      'type': 'logout',
+      'timestamp': DateTime.now().toIso8601String()
+    };
+
+    // Save pending images
+    await prefs.setString(pendingImagesKey, jsonEncode(logoutImages));
+
+    // Vehicle data validation
     final vehicleData = carServices.getVehicleData(Globals.vehicleID!);
     if (vehicleData == null) {
       showDialog(
@@ -289,8 +311,7 @@ class _LogoutPageState extends State<LogoutPage> {
         builder: (BuildContext context) {
           return AlertDialog(
             title: const Text('Error'),
-            content:
-                const Text('Could not verify vehicle data. Please try again.'),
+            content: const Text('Could not verify vehicle data. Please try again.'),
             actions: <Widget>[
               TextButton(
                 onPressed: () {
@@ -305,12 +326,11 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
-    // Validate KM input
+    // KM validation
     if (int.tryParse(_kmController.text) != null) {
       int userInputKm = int.parse(_kmController.text);
-      int lastKm = vehicleData.km; // Using stored vehicle data
+      int lastKm = vehicleData.km;
 
-      // Check if input KM is valid
       if (userInputKm < lastKm) {
         showDialog(
           context: context,
@@ -336,42 +356,60 @@ class _LogoutPageState extends State<LogoutPage> {
 
     _showLoggingOutDialog();
 
+    // Perform vehicle logout
     await logoutVehicle();
 
-    Workmanager().registerOneOffTask(
-      "2",
+    // Schedule image upload task
+    await Workmanager().registerOneOffTask(
+      "imageUpload_logout_${DateTime.now().millisecondsSinceEpoch}",
       uploadImageTask,
-      inputData: {
-        'userId': Globals.userId.toString(),
-        'vehicleID': carId.toString(),
-        'km': _kmController.text,
-        'image1': Globals.image6?.path,
-        'image2': Globals.image7?.path,
-        'image3': Globals.image8?.path,
-        'image4': Globals.image9?.path,
-        'image5': Globals.image10?.path,
-        'image6': Globals.parcursOut?.path
-      },
+      inputData: logoutImages,
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: true,
+      ),
+      existingWorkPolicy: ExistingWorkPolicy.append,
+      backoffPolicy: BackoffPolicy.linear,
+      backoffPolicyDelay: const Duration(seconds: 30)
     );
 
     _hideLoggingOutDialog();
 
-    SharedPreferences prefs = await SharedPreferences.getInstance();
+    // Clear stored data
     await prefs.remove('vehicleId');
-    await prefs.remove('image1');
-    await prefs.remove('image2');
-    await prefs.remove('image3');
-    await prefs.remove('image4');
-    await prefs.remove('image5');
+    //await prefs.remove('isLoggedIn');
     Globals.vehicleID = null;
 
+    // Navigate to driver page
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => const DriverPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const DriverPage()),
+    );
+  } catch (e) {
+    print('Error in logout submit data: $e');
+    // Hide loading dialog if showing
+    _hideLoggingOutDialog();
+    
+    // Show error to user
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Error'),
+          content: const Text('An error occurred while logging out. Please try again.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
     );
   }
+}
 
   @override
   Widget build(BuildContext context) {
