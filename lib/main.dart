@@ -62,37 +62,36 @@ Future<bool> handleConnectivityCheck() async {
       if (!isOperationInProgress) {
         await prefs.setBool(operationLockKey, true);
         try {
-          // Check and upload pending vehicle operations
+          // Process pending vehicle operations first
           String? pendingOperation = prefs.getString('pendingVehicleOperation');
           if (pendingOperation != null) {
             Map<String, dynamic> operationData = jsonDecode(pendingOperation);
+            print("Found pending operation: ${operationData['operationType']}");
+            // Process the operation regardless of type
             bool success = await uploadVehicleOperation(operationData);
-
             if (success) {
+              print("Successfully processed pending operation");
               await prefs.remove('pendingVehicleOperation');
-
+              // If it was a logout operation, clear vehicle data
               if (operationData['operationType'] == 'logout') {
-                // Clear vehicle-related data after successful logout
+                print("Clearing vehicle data after successful logout");
                 await prefs.remove('vehicleId');
+                await prefs.remove('lastKmValue');
                 Globals.vehicleID = null;
-                return true;
               }
             }
           }
 
-          // Only process other tasks if there's an active vehicle
-          if (activeVehicleId != null) {
-            // Handle pending images
-            String? pendingImages = prefs.getString(pendingImagesKey);
-            if (pendingImages != null) {
-              await handleImageUpload(jsonDecode(pendingImages));
-            }
+          // Then handle pending images
+          String? pendingImages = prefs.getString(pendingImagesKey);
+          if (pendingImages != null) {
+            await handleImageUpload(jsonDecode(pendingImages));
+          }
 
-            // Handle pending expenses
-            String? pendingExpense = prefs.getString('expensesData');
-            if (pendingExpense != null) {
-              await uploadExpense(jsonDecode(pendingExpense));
-            }
+          // Finally handle pending expenses
+          String? pendingExpense = prefs.getString('expensesData');
+          if (pendingExpense != null) {
+            await uploadExpense(jsonDecode(pendingExpense));
           }
         } finally {
           await prefs.setBool(operationLockKey, false);
@@ -156,15 +155,12 @@ Future<bool> handleVehicleOperation(
     Map<String, dynamic>? inputData, VehicleOperationType operationType) async {
   var connectivityResult = await Connectivity().checkConnectivity();
   if (connectivityResult == ConnectivityResult.none) {
-    print('No internet connection. Saving vehicle operation data locally.');
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('pendingVehicleOperation', json.encode(inputData));
       if (operationType == VehicleOperationType.logout) {
-        //await prefs.remove('isLoggedIn');
-        //await prefs.remove('vehicleId');
-        Globals.vehicleID = null;
+        inputData?['requestedLogout'] = true; // Add flag for explicit logout
       }
+      await prefs.setString('pendingVehicleOperation', json.encode(inputData));
       return false;
     } catch (e) {
       print('Error saving vehicle operation data: $e');
@@ -188,7 +184,7 @@ Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
     request.fields['driver'] = inputData['driver'] ?? '';
     request.fields['vehicle'] = inputData['vehicle'] ?? '';
     request.fields['km'] = inputData['km'] ?? '';
-    request.fields['datetime'] = inputData['datetime'] ?? '';
+    request.fields['time'] = inputData['datetime'] ?? '';
 
     var response = await request.send();
     if (response.statusCode == 200) {
@@ -304,22 +300,27 @@ Future<void> _uploadSavedExpenses() async {
   }
 }
 
-Future<void> loginVehicle() async {
+Future<void> loginVehicle(String loginDate) async {
   try {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    String currentDateTime =
-        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
     Map<String, dynamic> operationData = {
       'driver': Globals.userId.toString(),
       'vehicle': Globals.vehicleID.toString(),
       'km': Globals.kmValue.toString(),
       'operationType': 'login',
-      'datetime': currentDateTime,
+      'datetime': loginDate,
     };
 
+    // Save operation data first
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setInt('vehicleId', Globals.vehicleID!);
+    await prefs.setString('lastKmValue', Globals.kmValue.toString());
+    await _saveImagesToPrefs(); // Save images when logging in
+
+    // Then schedule the task
     await Workmanager().registerOneOffTask(
-      "vehicleLogin_${DateTime.now().millisecondsSinceEpoch}",
+      "vehicleLogin_$loginDate",
       vehicleLoginTask,
       inputData: operationData,
       constraints: Constraints(
@@ -329,34 +330,47 @@ Future<void> loginVehicle() async {
       existingWorkPolicy: ExistingWorkPolicy.append,
     );
 
-    await prefs.setBool('isLoggedIn', true);
-    await prefs.setInt('vehicleId', Globals.vehicleID!);
-
-    print("Vehicle login operation scheduled for: $currentDateTime");
+    print("Vehicle login operation scheduled for: $loginDate");
   } catch (e) {
     print('Error scheduling vehicle login: $e');
   }
 }
 
-Future<void> logoutVehicle() async {
+Future<void> logoutVehicle(String logoutDate) async {
   try {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    String currentDateTime =
-        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
     Map<String, dynamic> operationData = {
       'driver': Globals.userId.toString(),
       'vehicle': Globals.vehicleID.toString(),
       'km': Globals.kmValue.toString(),
       'operationType': 'logout',
-      'datetime': currentDateTime,
+      'datetime': logoutDate,
     };
 
-    // Cancel existing tasks since vehicle is being logged out
-    await Workmanager().cancelAll();
+    // Save the operation data first
+    print("Saving logout operation data");
+    await prefs.setString('pendingVehicleOperation', jsonEncode(operationData));
 
+    var connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult != ConnectivityResult.none) {
+      print("Has connectivity, attempting immediate logout");
+      // Try immediate logout
+      bool success = await uploadVehicleOperation(operationData);
+      if (success) {
+        print("Immediate logout successful");
+        await prefs.remove('pendingVehicleOperation');
+        await prefs.remove('vehicleId');
+        await prefs.remove('lastKmValue');
+        Globals.vehicleID = null;
+        return;
+      }
+    }
+
+    // If we're here, either no connectivity or immediate upload failed
+    print("Scheduling background logout task");
     await Workmanager().registerOneOffTask(
-      "vehicleLogout_${DateTime.now().millisecondsSinceEpoch}",
+      "vehicleLogout_$logoutDate",
       vehicleLogoutTask,
       inputData: operationData,
       constraints: Constraints(
@@ -366,14 +380,22 @@ Future<void> logoutVehicle() async {
       existingWorkPolicy: ExistingWorkPolicy.append,
     );
 
-    // Save pending operation and clear vehicle ID
-    await prefs.setString('pendingVehicleOperation', jsonEncode(operationData));
-    await prefs.remove('vehicleId');
-    Globals.vehicleID = null;
+    // Register periodic connectivity check if not already registered
+    await Workmanager().registerPeriodicTask(
+      "connectivityCheck",
+      connectivityCheckTask,
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: true,
+      ),
+      existingWorkPolicy: ExistingWorkPolicy.keep,
+    );
 
-    print("Vehicle logout operation scheduled for: $currentDateTime");
+    print("Vehicle logout operation scheduled for background processing");
   } catch (e) {
     print('Error scheduling vehicle logout: $e');
+    throw e;
   }
 }
 
@@ -392,40 +414,53 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   SharedPreferences prefs = await SharedPreferences.getInstance();
-  // Reset any stale locks on app start
+
+  // Reset stale locks
   await prefs.setBool(operationLockKey, false);
   await prefs.setBool(imageUploadLockKey, false);
 
+  // Remove any unintentional pending operations
+  String? pendingOperation = prefs.getString('pendingVehicleOperation');
+  if (pendingOperation != null) {
+    Map<String, dynamic> operationData = jsonDecode(pendingOperation);
+    if (operationData['requestedLogout'] != true) {
+      await prefs.remove('pendingVehicleOperation');
+    }
+  }
+
+  // Initialize Workmanager
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
   bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
   int? activeVehicleId = prefs.getInt('vehicleId');
+  String? userId = prefs.getString('userId');
 
-  // Only register periodic task if there's an active vehicle
-  if (activeVehicleId != null) {
-    await Workmanager().registerPeriodicTask(
-      "connectivityCheck",
-      connectivityCheckTask,
-      frequency: const Duration(minutes: 15),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
-      existingWorkPolicy: ExistingWorkPolicy.replace,
-    );
-  }
-
-  if (isLoggedIn) {
-    Globals.userId = int.tryParse(prefs.getString('userId') ?? '');
+  if (isLoggedIn && userId != null) {
+    Globals.userId = int.tryParse(userId);
     Globals.vehicleID = activeVehicleId;
-
-    print('User ID loaded: ${Globals.userId}');
+    Globals.kmValue = prefs.getString('lastKmValue');
 
     await _loadImagesFromPrefs();
 
+    // Only register connectivity check if logged into a vehicle
+    if (activeVehicleId != null) {
+      await Workmanager().registerPeriodicTask(
+        "connectivityCheck",
+        connectivityCheckTask,
+        frequency: const Duration(minutes: 15),
+        constraints: Constraints(
+          networkType: NetworkType.connected,
+          requiresBatteryNotLow: true,
+        ),
+        existingWorkPolicy: ExistingWorkPolicy.replace,
+        inputData: {
+          'checkType': 'periodic', // Add this to identify periodic checks
+        },
+      );
+    }
+
     try {
       await carServices.initializeData();
-      print('Car services initialized');
     } catch (e) {
       print('Error initializing car services: $e');
     }
@@ -436,22 +471,6 @@ void main() async {
   runApp(MyApp(isLoggedIn: isLoggedIn));
 }
 
-Future<void> _loadImagesFromPrefs() async {
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  String? pendingImages = prefs.getString(pendingImagesKey);
-
-  if (pendingImages != null) {
-    Map<String, dynamic> imageData = jsonDecode(pendingImages);
-    if (imageData['type'] == 'login') {
-      Globals.image1 = File(imageData['image1']);
-      Globals.image2 = File(imageData['image2']);
-      Globals.image3 = File(imageData['image3']);
-      Globals.image4 = File(imageData['image4']);
-      Globals.image5 = File(imageData['image5']);
-      Globals.parcursIn = File(imageData['image6']);
-    }
-  }
-}
 
 Future<void> schedulePeriodicUpload() async {
   Workmanager().registerPeriodicTask(
@@ -462,36 +481,61 @@ Future<void> schedulePeriodicUpload() async {
   );
 }
 
-// Function to load images from SharedPreferences
-// Future<void> _loadImagesFromPrefs() async {
-//   SharedPreferences prefs = await SharedPreferences.getInstance();
-//   String? imagePath1 = prefs.getString('image1');
-//   String? imagePath2 = prefs.getString('image2');
-//   String? imagePath3 = prefs.getString('image3');
-//   String? imagePath4 = prefs.getString('image4');
-//   String? imagePath5 = prefs.getString('image5');
-//   String? imagePath6 = prefs.getString('image6');
-//   String? imagePath7 = prefs.getString('image7');
-//   String? imagePath8 = prefs.getString('image8');
-//   String? imagePath9 = prefs.getString('image9');
-//   String? imagePath10 = prefs.getString('image10');
-//   String? imagePathParcursIn = prefs.getString('parcursIn');
-//   String? imagePathParcursOut = prefs.getString('parcursout');
+Future<void> _saveImagesToPrefs() async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  if (Globals.image1?.path != null)
+    await prefs.setString('image1', Globals.image1!.path);
+  if (Globals.image2?.path != null)
+    await prefs.setString('image2', Globals.image2!.path);
+  if (Globals.image3?.path != null)
+    await prefs.setString('image3', Globals.image3!.path);
+  if (Globals.image4?.path != null)
+    await prefs.setString('image4', Globals.image4!.path);
+  if (Globals.image5?.path != null)
+    await prefs.setString('image5', Globals.image5!.path);
+  if (Globals.image6?.path != null)
+    await prefs.setString('image6', Globals.image6!.path);
+  if (Globals.image7?.path != null)
+    await prefs.setString('image7', Globals.image7!.path);
+  if (Globals.image8?.path != null)
+    await prefs.setString('image8', Globals.image8!.path);
+  if (Globals.image9?.path != null)
+    await prefs.setString('image9', Globals.image9!.path);
+  if (Globals.image10?.path != null)
+    await prefs.setString('image10', Globals.image10!.path);
+  if (Globals.parcursIn?.path != null)
+    await prefs.setString('parcursIn', Globals.parcursIn!.path);
+  if (Globals.parcursOut?.path != null)
+    await prefs.setString('parcursOut', Globals.parcursOut!.path);
+}
 
-//   if (imagePath1 != null) Globals.image1 = File(imagePath1);
-//   if (imagePath2 != null) Globals.image2 = File(imagePath2);
-//   if (imagePath3 != null) Globals.image3 = File(imagePath3);
-//   if (imagePath4 != null) Globals.image4 = File(imagePath4);
-//   if (imagePath5 != null) Globals.image5 = File(imagePath5);
-//   if (imagePath6 != null) Globals.image6 = File(imagePath6);
-//   if (imagePath7 != null) Globals.image7 = File(imagePath7);
-//   if (imagePath8 != null) Globals.image8 = File(imagePath8);
-//   if (imagePath9 != null) Globals.image9 = File(imagePath9);
-//   if (imagePath10 != null) Globals.image10 = File(imagePath10);
-//   if (imagePathParcursIn != null) Globals.parcursIn = File(imagePathParcursIn);
-//   if (imagePathParcursOut != null)
-//     Globals.parcursIn = File(imagePathParcursOut);
-// }
+// Function to load images from SharedPreferences
+Future<void> _loadImagesFromPrefs() async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  Future<File?> getFileIfExists(String? path) async {
+    if (path != null) {
+      File file = File(path);
+      if (await file.exists()) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  Globals.image1 = await getFileIfExists(prefs.getString('image1'));
+  Globals.image2 = await getFileIfExists(prefs.getString('image2'));
+  Globals.image3 = await getFileIfExists(prefs.getString('image3'));
+  Globals.image4 = await getFileIfExists(prefs.getString('image4'));
+  Globals.image5 = await getFileIfExists(prefs.getString('image5'));
+  Globals.image6 = await getFileIfExists(prefs.getString('image6'));
+  Globals.image7 = await getFileIfExists(prefs.getString('image7'));
+  Globals.image8 = await getFileIfExists(prefs.getString('image8'));
+  Globals.image9 = await getFileIfExists(prefs.getString('image9'));
+  Globals.image10 = await getFileIfExists(prefs.getString('image10'));
+  Globals.parcursIn = await getFileIfExists(prefs.getString('parcursIn'));
+  Globals.parcursOut = await getFileIfExists(prefs.getString('parcursOut'));
+}
 
 class InitialLoadingScreen extends StatefulWidget {
   final bool isLoggedIn;

@@ -26,26 +26,37 @@ class CarServices {
   Future<void> initializeData() async {
     print('Starting initializeData');
     try {
+      // First try to load cached data
+      await _loadCachedData();
+      print(
+          'Loaded cached data: ${_cars.length} cars, ${_vehiclesData.length} vehicle data');
+
+      // Check connectivity
       final hasConnection = await _checkConnectivity();
       if (!hasConnection) {
-        print('No internet connection. Cannot fetch car data.');
+        print('No internet connection. Using cached data.');
         return;
       }
 
-      // First check if user is logged in
+      // Then try to get fresh data
       if (Globals.userId == null) {
         print('No user ID available, fetching all cars...');
-        await getCars();  // Get all cars if user not logged in
+        await getCars();
         print('All cars loaded: ${_cars.length}');
       } else {
         print('User logged in, fetching assigned vehicles...');
-        // Get vehicle data for logged-in user
         await fetchVehicleData();
-        print('Vehicle data loaded. Current vehicles in data: ${_vehiclesData.keys}');
+        print(
+            'Vehicle data loaded. Current vehicles in data: ${_vehiclesData.keys}');
       }
 
+      // Cache the fresh data
+      await _cacheData();
+      print('Data cached successfully');
     } catch (e) {
       print('Error in initializeData: $e');
+      // If there's an error fetching fresh data, we'll still have cached data
+      print('Using cached data due to error');
       rethrow;
     }
   }
@@ -54,7 +65,8 @@ class CarServices {
     try {
       final hasConnection = await _checkConnectivity();
       if (!hasConnection) {
-        throw Exception('No internet connection');
+        print('No internet connection, using cached cars');
+        return;
       }
 
       final response = await http.post(
@@ -71,6 +83,10 @@ class CarServices {
         List<dynamic> jsonData = jsonDecode(response.body);
         _cars = jsonData.map((json) => Car.fromJson(json)).toList();
         print('Fetched ${_cars.length} cars');
+
+        // Cache the new data
+        await _cacheData();
+        print('Cars cached successfully');
       } else {
         throw Exception('Failed to load cars: ${response.statusCode}');
       }
@@ -84,7 +100,8 @@ class CarServices {
     try {
       final hasConnection = await _checkConnectivity();
       if (!hasConnection) {
-        throw Exception('No internet connection');
+        print('No internet connection, using cached vehicle data');
+        return;
       }
 
       final response = await http.post(
@@ -122,7 +139,12 @@ class CarServices {
               numberPlate: vehicleData.numberPlate,
             )
           ];
-          print('Stored data for vehicle ID $vehicleId with KM: ${vehicleData.km}');
+          print(
+              'Stored data for vehicle ID $vehicleId with KM: ${vehicleData.km}');
+
+          // Cache the new data
+          await _cacheData();
+          print('Vehicle data cached successfully');
         }
       }
     } catch (e) {
@@ -168,7 +190,8 @@ class CarServices {
         if (data is bool && data == false) {
           _lastKm = 0;
           return true;
-        } else if (data != null && (data is int || int.tryParse(data.toString()) != null)) {
+        } else if (data != null &&
+            (data is int || int.tryParse(data.toString()) != null)) {
           _lastKm = int.parse(data.toString());
           return true;
         } else {
@@ -183,25 +206,29 @@ class CarServices {
     }
   }
 
-  // Cache management methods
   Future<void> _cacheData() async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
 
       // Cache cars
       if (_cars.isNotEmpty) {
-        await prefs.setString('cached_cars', jsonEncode(_cars.map((car) => {
-          'id': car.id,
-          'name': car.name,
-          'numberplate': car.numberPlate,
-        }).toList()));
+        await prefs.setString(
+            'cached_cars',
+            jsonEncode(_cars
+                .map((car) => {
+                      'id': car.id,
+                      'name': car.name,
+                      'numberplate': car.numberPlate,
+                    })
+                .toList()));
       }
 
       // Cache vehicle data
       if (_vehiclesData.isNotEmpty) {
-        final vehicleDataMap = _vehiclesData.map((key, value) =>
-            MapEntry(key.toString(), value.toJson()));
-        await prefs.setString('cached_vehicle_data', jsonEncode(vehicleDataMap));
+        final vehicleDataMap = _vehiclesData
+            .map((key, value) => MapEntry(key.toString(), value.toJson()));
+        await prefs.setString(
+            'cached_vehicle_data', jsonEncode(vehicleDataMap));
       }
     } catch (e) {
       print('Error caching data: $e');
@@ -224,11 +251,9 @@ class CarServices {
       final cachedVehicleDataString = prefs.getString('cached_vehicle_data');
       if (cachedVehicleDataString != null) {
         final Map<String, dynamic> cachedVehicleData =
-        jsonDecode(cachedVehicleDataString);
-        _vehiclesData = Map.fromEntries(
-            cachedVehicleData.entries.map((entry) =>
-                MapEntry(int.parse(entry.key), VehicleData.fromJson(entry.value)))
-        );
+            jsonDecode(cachedVehicleDataString);
+        _vehiclesData = Map.fromEntries(cachedVehicleData.entries.map((entry) =>
+            MapEntry(int.parse(entry.key), VehicleData.fromJson(entry.value))));
         print('Loaded ${_vehiclesData.length} vehicle data from cache');
       }
     } catch (e) {
@@ -236,7 +261,17 @@ class CarServices {
     }
   }
 
-  // Method to clear cache
+  Future<bool> hasCachedData() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      return prefs.containsKey('cached_cars') ||
+          prefs.containsKey('cached_vehicle_data');
+    } catch (e) {
+      print('Error checking cached data: $e');
+      return false;
+    }
+  }
+
   Future<void> clearCache() async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();

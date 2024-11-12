@@ -59,9 +59,9 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    // Just get the stored vehicle data
+    // Just get the stored vehicle data if already logged in
     if (Globals.vehicleID != null) {
-      _selectedCar = carServices.getVehicleData(Globals.vehicleID!);
+      _selectedCar = _carServices.getVehicleData(Globals.vehicleID!);
       _lastKm = _selectedCar?.km;
     }
   }
@@ -196,11 +196,11 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _selectedCarId = newValue;
       if (newValue != null) {
-        // Get the vehicle data for the selected car
+        // Get the vehicle data for the selected car from cache
         VehicleData? selectedVehicleData =
             _carServices.getVehicleData(newValue);
         if (selectedVehicleData != null) {
-          _lastKm = selectedVehicleData.km; // Get KM from VehicleData
+          _lastKm = selectedVehicleData.km;
         }
       }
     });
@@ -299,6 +299,8 @@ class _LoginPageState extends State<LoginPage> {
       Globals.vehicleID = _selectedCarId;
       Globals.kmValue = _kmController.text;
 
+      final String loginDate = DateTime.now().toIso8601String();
+
       // Prepare login images data
       Map<String, dynamic> loginImages = {
         'userId': Globals.userId.toString(),
@@ -311,7 +313,7 @@ class _LoginPageState extends State<LoginPage> {
         'image5': _image5!.path,
         'image6': parcursIn!.path,
         'type': 'login',
-        'timestamp': DateTime.now().toIso8601String()
+        'timestamp': loginDate
       };
 
       // Save login state and data
@@ -349,7 +351,7 @@ class _LoginPageState extends State<LoginPage> {
       _showLoggingDialog();
 
       // Perform vehicle login
-      await loginVehicle();
+      await loginVehicle(loginDate);
 
       // Schedule image upload task
       await Workmanager().registerOneOffTask(

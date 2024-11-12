@@ -30,26 +30,34 @@ class VehicleData {
   });
 
   factory VehicleData.fromJson(Map<String, dynamic> json) {
+    // Handle both direct and nested JSON structures
+    final vehicle = json['vehicle'] ?? json;
+    final insurance = json['insurance'] ?? json;
+    final tuv = json['tuv'] ?? json;
+    final oil = json['oil'] ?? json;
+
     return VehicleData(
-      vehicleId: json['vehicle']['vehicle_id'] ?? 0,
-      name: json['vehicle']['name'] ?? '',
-      numberPlate: json['vehicle']['numberplate'] ?? '',
-      km: json['vehicle']['km'] ?? 0,
-      insuranceStartDate: json['insurance']['date_start'] ?? '',
-      insuranceEndDate: json['insurance']['date_end'] ?? '',
-      insuranceValidity: _parseValidity(json['insurance']['validity']),
-      tuvStartDate: json['tuv']['date_start'] ?? '',
-      tuvEndDate: json['tuv']['date_end'] ?? '',
-      tuvValidity: _parseValidity(json['tuv']['validity']),
-      oilStartDate: json['oil']['date_start'] ?? '',
-      oilUntilKm: json['oil']['until'] ?? 0,
-      oilValidity: null, // This will be calculated later
+      vehicleId: vehicle['vehicle_id'] ?? 0,
+      name: vehicle['name'] ?? '',
+      numberPlate: vehicle['numberplate'] ?? '',
+      km: vehicle['km'] ?? 0,
+      insuranceStartDate: insurance['date_start'] ?? '',
+      insuranceEndDate: insurance['date_end'] ?? '',
+      insuranceValidity: _parseValidity(insurance['validity']),
+      tuvStartDate: tuv['date_start'] ?? '',
+      tuvEndDate: tuv['date_end'] ?? '',
+      tuvValidity: _parseValidity(tuv['validity']),
+      oilStartDate: oil['date_start'] ?? '',
+      oilUntilKm: oil['until'] ?? 0,
+      oilValidity: null,
     );
   }
 
-  static bool? _parseValidity(String? value) {
+  static bool? _parseValidity(dynamic value) {
     if (value == null) return null;
-    return value.toLowerCase() == 'valid';
+    if (value is bool) return value;
+    if (value is String) return value.toLowerCase() == 'valid';
+    return null;
   }
 
   bool isOilValid() {
@@ -68,17 +76,17 @@ class VehicleData {
       'insurance': {
         'date_start': insuranceStartDate,
         'date_end': insuranceEndDate,
-        'validity': insuranceValidity,
+        'validity': insuranceValidity != null ? (insuranceValidity! ? 'valid' : 'invalid') : null,
       },
       'tuv': {
         'date_start': tuvStartDate,
         'date_end': tuvEndDate,
-        'validity': tuvValidity,
+        'validity': tuvValidity != null ? (tuvValidity! ? 'valid' : 'invalid') : null,
       },
       'oil': {
         'date_start': oilStartDate,
         'until': oilUntilKm,
-        'validity': oilValidity,
+        'validity': oilValidity != null ? (oilValidity! ? 'valid' : 'invalid') : null,
       },
     };
   }
