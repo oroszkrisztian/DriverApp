@@ -53,57 +53,72 @@ void callbackDispatcher() {
 
 Future<bool> handleConnectivityCheck() async {
   try {
-    var connectivityResult = await Connectivity().checkConnectivity();
-    if (connectivityResult != ConnectivityResult.none) {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      bool isOperationInProgress = prefs.getBool(operationLockKey) ?? false;
-      int? activeVehicleId = prefs.getInt('vehicleId');
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String lockKey = 'operationLock';
+    bool hasLock = false;
 
-      if (!isOperationInProgress) {
-        await prefs.setBool(operationLockKey, true);
-        try {
-          // Process pending vehicle operations first
-          String? pendingOperation = prefs.getString('pendingVehicleOperation');
-          if (pendingOperation != null) {
-            Map<String, dynamic> operationData = jsonDecode(pendingOperation);
-            print("Found pending operation: ${operationData['operationType']}");
-            // Process the operation regardless of type
+    try {
+      // Try to acquire lock
+      if (prefs.getBool(lockKey) == true) {
+        return true; // Another operation in progress
+      }
+      await prefs.setBool(lockKey, true);
+      hasLock = true;
+
+      var connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult != ConnectivityResult.none) {
+        // Process pending vehicle operations first
+        String? pendingOperation = prefs.getString('pendingVehicleOperation');
+        if (pendingOperation != null) {
+          Map<String, dynamic> operationData = jsonDecode(pendingOperation);
+          String timestamp = operationData['datetime'] ?? '';
+
+          // Check if operation was already processed
+          bool wasProcessed = prefs.getBool('processed_${timestamp}') ?? false;
+          if (!wasProcessed) {
             bool success = await uploadVehicleOperation(operationData);
             if (success) {
-              print("Successfully processed pending operation");
+              await prefs.setBool('processed_${timestamp}', true);
               await prefs.remove('pendingVehicleOperation');
-              // If it was a logout operation, clear vehicle data
+
               if (operationData['operationType'] == 'logout') {
-                print("Clearing vehicle data after successful logout");
-                await prefs.remove('vehicleId');
-                await prefs.remove('lastKmValue');
-                Globals.vehicleID = null;
+                await _cleanupAfterLogout(prefs);
+                // Cancel any pending tasks after successful logout
+                await Workmanager().cancelAll();
               }
             }
           }
-
-          // Then handle pending images
-          String? pendingImages = prefs.getString(pendingImagesKey);
-          if (pendingImages != null) {
-            await handleImageUpload(jsonDecode(pendingImages));
-          }
-
-          // Finally handle pending expenses
-          String? pendingExpense = prefs.getString('expensesData');
-          if (pendingExpense != null) {
-            await uploadExpense(jsonDecode(pendingExpense));
-          }
-        } finally {
-          await prefs.setBool(operationLockKey, false);
         }
+
+        // Then handle pending images
+        await handlePendingImageUploads(prefs);
+      }
+      return true;
+    } finally {
+      if (hasLock) {
+        await prefs.setBool(lockKey, false);
       }
     }
-    return true;
   } catch (e) {
     print('Error in connectivity check: $e');
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(operationLockKey, false);
     return false;
+  }
+}
+
+Future<void> handlePendingImageUploads(SharedPreferences prefs) async {
+  String? pendingImages = prefs.getString(pendingImagesKey);
+  if (pendingImages != null) {
+    Map<String, dynamic> imageData = jsonDecode(pendingImages);
+    String timestamp = imageData['timestamp'] ?? '';
+
+    bool wasProcessed = prefs.getBool('processed_image_${timestamp}') ?? false;
+    if (!wasProcessed) {
+      bool success = await uploadImages(imageData);
+      if (success) {
+        await prefs.setBool('processed_image_${timestamp}', true);
+        await prefs.remove(pendingImagesKey);
+      }
+    }
   }
 }
 
@@ -153,28 +168,63 @@ Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
 
 Future<bool> handleVehicleOperation(
     Map<String, dynamic>? inputData, VehicleOperationType operationType) async {
-  var connectivityResult = await Connectivity().checkConnectivity();
-  if (connectivityResult == ConnectivityResult.none) {
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      if (operationType == VehicleOperationType.logout) {
-        inputData?['requestedLogout'] = true; // Add flag for explicit logout
-      }
-      await prefs.setString('pendingVehicleOperation', json.encode(inputData));
-      return false;
-    } catch (e) {
-      print('Error saving vehicle operation data: $e');
-      return false;
+  if (inputData == null) return false;
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String? existingOperation = prefs.getString('pendingVehicleOperation');
+
+  if (existingOperation != null) {
+    Map<String, dynamic> existingData = jsonDecode(existingOperation);
+    if (existingData['processed'] == true) {
+      // Operation already processed, don't duplicate
+      return true;
     }
   }
-  return await uploadVehicleOperation(inputData);
+
+  var connectivityResult = await Connectivity().checkConnectivity();
+  if (connectivityResult == ConnectivityResult.none) {
+    if (operationType == VehicleOperationType.logout) {
+      inputData['requestedLogout'] = true;
+    }
+    await prefs.setString('pendingVehicleOperation', json.encode(inputData));
+    return false;
+  }
+
+  bool success = await uploadVehicleOperation(inputData);
+  if (success) {
+    // Mark operation as processed
+    inputData['processed'] = true;
+    await prefs.setString('pendingVehicleOperation', json.encode(inputData));
+  }
+  return success;
+}
+
+Future<void> _cleanupAfterLogout(SharedPreferences prefs) async {
+  await prefs.remove('pendingVehicleOperation');
+  await prefs.remove('vehicleId');
+  await prefs.remove('lastKmValue');
+  await prefs.remove('isLoggedIn');
+  Globals.vehicleID = null;
+
+  // Clear all pending operations
+  await Workmanager().cancelAll();
 }
 
 Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
-  if (inputData == null) {
-    print("No input data for vehicle operation");
-    return false;
+  if (inputData == null) return false;
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String? existingOperation = prefs.getString('pendingVehicleOperation');
+
+  if (existingOperation != null) {
+    Map<String, dynamic> existingData = jsonDecode(existingOperation);
+    if (existingData['processed'] == true &&
+        existingData['operationId'] == inputData['operationId']) {
+      // Skip if this specific operation was already processed
+      return true;
+    }
   }
+
   try {
     var request = http.MultipartRequest(
       'POST',
@@ -188,14 +238,12 @@ Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
 
     var response = await request.send();
     if (response.statusCode == 200) {
-      print(
-          "Vehicle ${inputData['operationType']} operation complete at ${inputData['datetime']}");
+      // Mark operation as processed
+      inputData['processed'] = true;
+      await prefs.setString('pendingVehicleOperation', jsonEncode(inputData));
       return true;
-    } else {
-      print(
-          "Vehicle ${inputData['operationType']} operation failed: ${response.statusCode}");
-      return false;
     }
+    return false;
   } catch (e) {
     print('Error during vehicle ${inputData['operationType']} operation: $e');
     return false;
@@ -346,29 +394,23 @@ Future<void> logoutVehicle(String logoutDate) async {
       'km': Globals.kmValue.toString(),
       'operationType': 'logout',
       'datetime': logoutDate,
+      'timestamp': DateTime.now().millisecondsSinceEpoch.toString(),
     };
 
-    // Save the operation data first
-    print("Saving logout operation data");
+    // Save operation data
     await prefs.setString('pendingVehicleOperation', jsonEncode(operationData));
 
+    // Try immediate logout if connected
     var connectivityResult = await Connectivity().checkConnectivity();
     if (connectivityResult != ConnectivityResult.none) {
-      print("Has connectivity, attempting immediate logout");
-      // Try immediate logout
       bool success = await uploadVehicleOperation(operationData);
       if (success) {
-        print("Immediate logout successful");
-        await prefs.remove('pendingVehicleOperation');
-        await prefs.remove('vehicleId');
-        await prefs.remove('lastKmValue');
-        Globals.vehicleID = null;
+        await _cleanupAfterLogout(prefs);
         return;
       }
     }
 
-    // If we're here, either no connectivity or immediate upload failed
-    print("Scheduling background logout task");
+    // Schedule background task
     await Workmanager().registerOneOffTask(
       "vehicleLogout_$logoutDate",
       vehicleLogoutTask,
@@ -377,22 +419,8 @@ Future<void> logoutVehicle(String logoutDate) async {
         networkType: NetworkType.connected,
         requiresBatteryNotLow: true,
       ),
-      existingWorkPolicy: ExistingWorkPolicy.append,
-    );
-
-    // Register periodic connectivity check if not already registered
-    await Workmanager().registerPeriodicTask(
-      "connectivityCheck",
-      connectivityCheckTask,
-      frequency: const Duration(minutes: 15),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
       existingWorkPolicy: ExistingWorkPolicy.keep,
     );
-
-    print("Vehicle logout operation scheduled for background processing");
   } catch (e) {
     print('Error scheduling vehicle logout: $e');
     throw e;
@@ -470,7 +498,6 @@ void main() async {
 
   runApp(MyApp(isLoggedIn: isLoggedIn));
 }
-
 
 Future<void> schedulePeriodicUpload() async {
   Workmanager().registerPeriodicTask(
