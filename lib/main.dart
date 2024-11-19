@@ -205,7 +205,6 @@ Future<void> _cleanupAfterLogout(SharedPreferences prefs) async {
   await prefs.remove('lastKmValue');
   await prefs.remove('isLoggedIn');
   Globals.vehicleID = null;
-
   // Clear all pending operations
   await Workmanager().cancelAll();
 }
