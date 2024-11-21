@@ -45,15 +45,6 @@ class VehicleEntry {
   }
 }
 
-void main() {
-  runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: VehicleDataPage(),
-    ),
-  );
-}
-
 class VehicleDataPage extends StatefulWidget {
   const VehicleDataPage({super.key});
 
@@ -68,12 +59,13 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
   String _selectedType = 'All';
   DateTime? _startDate;
   DateTime? _endDate;
-  final String baseUrl = 'https://vinczefi.com'; // Define your base URL here
+  bool _isLoading = false;
+  final String baseUrl = 'https://vinczefi.com';
 
   @override
   void initState() {
     super.initState();
-    _fetchVehicleData(); // Fetch data initially
+    _fetchVehicleData();
   }
 
   Future<void> _fetchVehicleData() async {
@@ -91,7 +83,8 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
           'to': _endDate != null
               ? DateFormat('yyyy-MM-dd').format(_endDate!)
               : '',
-          'status': _selectedStatus.toLowerCase() == 'expired' ? 'expired' : 'active',
+          'status':
+              _selectedStatus.toLowerCase() == 'expired' ? 'expired' : 'active',
           'type': _selectedType.toLowerCase(),
           'vehicle': Globals.vehicleID?.toString(),
         },
@@ -100,7 +93,7 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
       if (response.statusCode == 200) {
         final List<dynamic> responseData = json.decode(response.body);
         List<VehicleEntry> fetchedData =
-        responseData.map((data) => VehicleEntry.fromJson(data)).toList();
+            responseData.map((data) => VehicleEntry.fromJson(data)).toList();
 
         _vehicleData = fetchedData;
 
@@ -126,70 +119,17 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
         DateTime startDate =
             DateTime.tryParse(vehicle.startDate) ?? DateTime(2000);
         DateTime endDate = DateTime.tryParse(vehicle.endDate) ?? DateTime(2100);
-        if (_startDate != null && startDate.isBefore(_startDate!)) {
-          return false;
-        }
-        if (_endDate != null && endDate.isAfter(_endDate!)) {
-          return false;
-        }
+
+        if (_startDate != null && startDate.isBefore(_startDate!)) return false;
+        if (_endDate != null && endDate.isAfter(_endDate!)) return false;
         if (_selectedStatus != 'All' &&
-            vehicle.status.toLowerCase() != _selectedStatus.toLowerCase()) {
+            vehicle.status.toLowerCase() != _selectedStatus.toLowerCase())
           return false;
-        }
-        if (_selectedType != 'All' && vehicle.type != _selectedType) {
+        if (_selectedType != 'All' && vehicle.type != _selectedType)
           return false;
-        }
+
         return true;
       }).toList();
-    });
-  }
-
-  void _showErrorDialog(String title, String message) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(title),
-          content: SingleChildScrollView(
-            child: ListBody(
-              children: <Widget>[Text(message)],
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('OK'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _applyFilters() {
-    _fetchVehicleData().then((_) {
-      setState(() {
-        _filteredVehicleData.sort((a, b) {
-          DateTime dateA = DateTime.tryParse(a.endDate) ?? DateTime(2000);
-          DateTime dateB = DateTime.tryParse(b.endDate) ?? DateTime(2000);
-          return dateB.compareTo(dateA);
-        });
-      });
-    });
-  }
-
-  void _filterByStatus(String status) {
-    setState(() {
-      _selectedStatus = status;
-    });
-  }
-
-  void _filterByType(String type) {
-    setState(() {
-      _selectedType = type;
     });
   }
 
@@ -214,9 +154,7 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
       },
     );
     if (picked != null && picked != _startDate) {
-      setState(() {
-        _startDate = picked;
-      });
+      setState(() => _startDate = picked);
     }
   }
 
@@ -241,23 +179,63 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
       },
     );
     if (picked != null && picked != _endDate) {
-      setState(() {
-        _endDate = picked;
-      });
+      setState(() => _endDate = picked);
     }
   }
 
+  void _filterByStatus(String status) =>
+      setState(() => _selectedStatus = status);
+  void _filterByType(String type) => setState(() => _selectedType = type);
+
+  void _applyFilters() {
+    _fetchVehicleData().then((_) {
+      setState(() {
+        _filteredVehicleData.sort((a, b) {
+          DateTime dateA = DateTime.tryParse(a.endDate) ?? DateTime(2000);
+          DateTime dateB = DateTime.tryParse(b.endDate) ?? DateTime(2000);
+          return dateB.compareTo(dateA);
+        });
+      });
+    });
+  }
+
+  void _showErrorDialog(String title, String message) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.0),
+          ),
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[Text(message)],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              style: TextButton.styleFrom(
+                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('OK'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   void _showImage(String photo) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         bool isBase64 = photo.startsWith('data:image');
-        String imageUrl = isBase64
-            ? photo
-            : '$baseUrl/$photo'; // Append base URL if it's not a base64 string
+        String imageUrl = isBase64 ? photo : '$baseUrl/$photo';
 
-        print('Image URL: $imageUrl');
         return Dialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20.0),
@@ -271,23 +249,21 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
                   InteractiveViewer(
                     child: isBase64
                         ? Image.memory(
-                      base64Decode(photo.split(',').last),
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.error);
-                      },
-                    )
+                            base64Decode(photo.split(',').last),
+                            errorBuilder: (context, error, stackTrace) =>
+                                const Icon(Icons.error),
+                          )
                         : Image.network(
-                      imageUrl,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(Icons.error);
-                      },
-                    ),
+                            imageUrl,
+                            errorBuilder: (context, error, stackTrace) =>
+                                const Icon(Icons.error),
+                          ),
                   ),
                   const SizedBox(height: 8.0),
                   ElevatedButton(
                     onPressed: () => Navigator.of(context).pop(),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
+                      backgroundColor: const Color.fromARGB(255, 101, 204, 82),
                       foregroundColor: Colors.white,
                     ),
                     child: const Text('Close'),
@@ -305,255 +281,449 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vehicle Data'),
+        title: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.directions_car, color: Colors.white, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Vehicle Data',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
+          ],
+        ),
         centerTitle: true,
         backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 16.0),
-            // Filter Container
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20.0),
-                border: Border.all(
-                  width: 1,
-                  color: Colors.black,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.fromARGB(255, 101, 204, 82),
+              Color.fromARGB(255, 220, 247, 214),
+            ],
+          ),
+        ),
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Color.fromARGB(255, 101, 204, 82),
+                  ),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.5),
-                    spreadRadius: 5,
-                    blurRadius: 7,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Text(
-                    'Date',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.0),
-                  ),
-                  const SizedBox(height: 8.0),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton(
-                        onPressed: () => _selectStartDate(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20.0),
-                          ),
-                        ),
-                        child: Text(
-                          _startDate != null
-                              ? DateFormat('yyyy-MM-dd').format(_startDate!)
-                              : 'From',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
+              )
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight - 32,
                       ),
-                      const SizedBox(width: 8.0),
-                      ElevatedButton(
-                        onPressed: () => _selectEndDate(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20.0),
-                          ),
-                        ),
-                        child: Text(
-                          _endDate != null
-                              ? DateFormat('yyyy-MM-dd').format(_endDate!)
-                              : 'To',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16.0),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Text(
-                            'Status',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.0),
+                          const SizedBox(height: 16.0),
+                          StyledFilterContainer(
+                            startDate: _startDate,
+                            endDate: _endDate,
+                            selectedStatus: _selectedStatus,
+                            selectedType: _selectedType,
+                            onSelectStartDate: () => _selectStartDate(context),
+                            onSelectEndDate: () => _selectEndDate(context),
+                            onStatusChanged: _filterByStatus,
+                            onTypeChanged: _filterByType,
+                            onApplyFilters: _applyFilters,
                           ),
-                          const SizedBox(height: 8.0),
-                          DropdownButton<String>(
-                            value: _selectedStatus,
-                            onChanged: (value) {
-                              _filterByStatus(value!);
-                            },
-                            items: ['All', 'Active', 'Expired']
-                                .map((status) => DropdownMenuItem<String>(
-                              value: status,
-                              child: Text(status),
-                            ))
-                                .toList(),
+                          const SizedBox(height: 16.0),
+                          StyledDataTable(
+                            vehicleData: _filteredVehicleData,
+                            onImageTap: _showImage,
                           ),
+                          const SizedBox(height: 16.0),
                         ],
-                      ),
-                      const SizedBox(width: 16.0),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'Type',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16.0),
-                          ),
-                          const SizedBox(height: 8.0),
-                          DropdownButton<String>(
-                            value: _selectedType,
-                            onChanged: (value) {
-                              _filterByType(value!);
-                            },
-                            items: ['All', 'Oil', 'TUV', 'Insurance']
-                                .map((type) => DropdownMenuItem<String>(
-                              value: type,
-                              child: Text(type),
-                            ))
-                                .toList(),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16.0),
-                  ElevatedButton(
-                    onPressed: _applyFilters,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color.fromARGB(255, 101, 204, 82),
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20.0),
                       ),
                     ),
-                    child: const Text(
-                      'Apply Filters',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+class StyledFilterContainer extends StatelessWidget {
+  final DateTime? startDate;
+  final DateTime? endDate;
+  final String selectedStatus;
+  final String selectedType;
+  final VoidCallback onSelectStartDate;
+  final VoidCallback onSelectEndDate;
+  final Function(String) onStatusChanged;
+  final Function(String) onTypeChanged;
+  final VoidCallback onApplyFilters;
+
+  const StyledFilterContainer({
+    super.key,
+    required this.startDate,
+    required this.endDate,
+    required this.selectedStatus,
+    required this.selectedType,
+    required this.onSelectStartDate,
+    required this.onSelectEndDate,
+    required this.onStatusChanged,
+    required this.onTypeChanged,
+    required this.onApplyFilters,
+  });
+
+  Widget _buildDateButton({
+    required VoidCallback onPressed,
+    required String text,
+    required IconData icon,
+  }) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 2,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(
+            color: Color.fromARGB(255, 101, 204, 82),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: const Color.fromARGB(255, 101, 204, 82),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDropdown({
+    required String value,
+    required List<String> items,
+    required Function(String) onChanged,
+    required String label,
+    required IconData icon,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: const Color.fromARGB(255, 101, 204, 82),
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color.fromARGB(255, 101, 204, 82),
+              width: 1,
+            ),
+            color: Colors.white,
+          ),
+          child: DropdownButton<String>(
+            value: value,
+            isExpanded: true,
+            underline: Container(),
+            icon: const Icon(
+              Icons.arrow_drop_down,
+              color: Color.fromARGB(255, 101, 204, 82),
+            ),
+            items: items.map((String item) {
+              return DropdownMenuItem<String>(
+                value: item,
+                child: Text(item),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              // Modified to handle nullable
+              if (newValue != null) {
+                onChanged(newValue);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Color.fromARGB(255, 240, 250, 238),
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            // Date Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.date_range,
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Select Date Range',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildDateButton(
+                    onPressed: onSelectStartDate,
+                    text: startDate == null
+                        ? 'Start Date'
+                        : DateFormat('yyyy-MM-dd').format(startDate!),
+                    icon: Icons.calendar_today,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildDateButton(
+                    onPressed: onSelectEndDate,
+                    text: endDate == null
+                        ? 'End Date'
+                        : DateFormat('yyyy-MM-dd').format(endDate!),
+                    icon: Icons.calendar_today,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Filters Section
+            Row(
+              children: [
+                Expanded(
+                  child: _buildDropdown(
+                    value: selectedStatus,
+                    items: const ['All', 'Active', 'Expired'],
+                    onChanged: onStatusChanged,
+                    label: 'Status',
+                    icon: Icons.info_outline,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildDropdown(
+                    value: selectedType,
+                    items: const ['All', 'Oil', 'TUV', 'Insurance'],
+                    onChanged: onTypeChanged,
+                    label: 'Type',
+                    icon: Icons.category,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Apply Button
+            ElevatedButton(
+              onPressed: onApplyFilters,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.filter_list),
+                  SizedBox(width: 8),
+                  Text(
+                    'Apply Filters',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16.0),
-            // Data Table Container
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20.0),
-                border: Border.all(
-                  width: 1,
-                  color: Colors.black,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class StyledDataTable extends StatelessWidget {
+  final List<VehicleEntry> vehicleData;
+  final Function(String) onImageTap;
+
+  const StyledDataTable({
+    super.key,
+    required this.vehicleData,
+    required this.onImageTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              Color.fromARGB(255, 240, 250, 238),
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.table_chart,
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  size: 24,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.5),
-                    spreadRadius: 5,
-                    blurRadius: 7,
-                    offset: const Offset(0, 3),
+                SizedBox(width: 8),
+                Text(
+                  'Vehicle Records',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
                   ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 20,
-                  columns: const [
-                    DataColumn(
-                      label: Text(
-                        'ID',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Name',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Plate Number',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Type',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'KM',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Start Date',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'End Date',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Remarks',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Photo',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                  rows: _filteredVehicleData.map((data) {
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(data.id.toString())),
-                        DataCell(Text(data.name)),
-                        DataCell(Text(data.plateNumber)),
-                        DataCell(Text(data.type)),
-                        DataCell(Text(data.km.toString())),
-                        DataCell(Text(data.startDate)),
-                        DataCell(Text(data.endDate)),
-                        DataCell(Text(data.remarks)),
-                        DataCell(
-                          data.photo.isNotEmpty
-                              ? GestureDetector(
-                            onTap: () => _showImage(data.photo),
-                            child: const Icon(
-                              Icons.image,
-                              color: Colors.green,
-                            ),
-                          )
-                              : const Text('No photos'),
-                        ),
-                      ],
-                    );
-                  }).toList(),
                 ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: MaterialStateProperty.all(
+                  const Color.fromARGB(255, 101, 204, 82).withOpacity(0.1),
+                ),
+                dataRowColor: MaterialStateProperty.all(Colors.transparent),
+                columnSpacing: 20,
+                headingTextStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+                dataTextStyle: const TextStyle(
+                  color: Colors.black87,
+                ),
+                columns: const [
+                  DataColumn(label: Text('ID')),
+                  DataColumn(label: Text('Name')),
+                  DataColumn(label: Text('Plate Number')),
+                  DataColumn(label: Text('Type')),
+                  DataColumn(label: Text('KM')),
+                  DataColumn(label: Text('Start Date')),
+                  DataColumn(label: Text('End Date')),
+                  DataColumn(label: Text('Remarks')),
+                  DataColumn(label: Text('Photo')),
+                ],
+                rows: vehicleData.map((data) {
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(data.id.toString())),
+                      DataCell(Text(data.name)),
+                      DataCell(Text(data.plateNumber)),
+                      DataCell(Text(data.type)),
+                      DataCell(Text(data.km.toString())),
+                      DataCell(Text(data.startDate)),
+                      DataCell(Text(data.endDate)),
+                      DataCell(Text(data.remarks)),
+                      DataCell(
+                        data.photo.isNotEmpty
+                            ? GestureDetector(
+                                onTap: () => onImageTap(data.photo),
+                                child: const Icon(
+                                  Icons.image,
+                                  color: Color.fromARGB(255, 101, 204, 82),
+                                ),
+                              )
+                            : const Text('No photos'),
+                      ),
+                    ],
+                  );
+                }).toList(),
               ),
             ),
           ],

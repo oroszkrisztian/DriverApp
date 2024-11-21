@@ -137,72 +137,116 @@ class _DriverPageState extends State<DriverPage> {
     showDialog(
       context: context,
       builder: (BuildContext context) {
+        final screenWidth = MediaQuery.of(context).size.width;
+        final buttonWidth = screenWidth * 0.17;
+
         return AlertDialog(
-          content: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              FloatingActionButton(
-                heroTag: 'submit_expense',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const VehicleExpensePage()),
-                  );
-                },
-                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.add),
-                    Text(
-                      'Submit',
-                      style: TextStyle(fontSize: 10),
-                    ),
-                  ],
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          content: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(30),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  spreadRadius: 1,
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
                 ),
-              ),
-              FloatingActionButton(
-                heroTag: 'expense_log',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const ExpenseLogPage()),
-                  );
-                },
-                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.list),
-                    Text(
-                      'Logs',
-                      style: TextStyle(fontSize: 10),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: buttonWidth,
+                  child: FloatingActionButton(
+                    heroTag: 'submit_expense',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const VehicleExpensePage()),
+                      );
+                    },
+                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.0),
                     ),
-                  ],
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add,
+                          color: Colors.white,
+                          size: buttonWidth * 0.3,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Submit',
+                          style: TextStyle(
+                            fontSize: buttonWidth * 0.13,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 16),
+                Container(
+                  width: buttonWidth,
+                  child: FloatingActionButton(
+                    heroTag: 'expense_log',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const ExpenseLogPage()),
+                      );
+                    },
+                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.list,
+                          color: Colors.white,
+                          size: buttonWidth * 0.3,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Logs',
+                          style: TextStyle(
+                            fontSize: buttonWidth * 0.13,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildImagePreviewButton(String label, File? image) {
-    return ElevatedButton(
-      onPressed: () => _showImage(image),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        side: const BorderSide(
-            color: Color.fromARGB(255, 101, 204, 82), width: 1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-        ),
-      ),
-      child: Text(label),
     );
   }
 

@@ -1,15 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import 'globals.dart';
-import 'main.dart';
-
-// Define the constant for the expense upload task
-const String uploadExpenseTask = "uploadExpenseTask";
 
 class VehicleExpensePage extends StatefulWidget {
   const VehicleExpensePage({Key? key}) : super(key: key);
@@ -31,6 +25,14 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
 
   final List<String> _expenseTypes = ['Fuel', 'Wash', 'Others'];
 
+  @override
+  void dispose() {
+    _kmController.dispose();
+    _remarksController.dispose();
+    _costController.dispose();
+    super.dispose();
+  }
+
   /// Pick an image using the camera
   Future<void> _pickImage() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.camera);
@@ -41,39 +43,49 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
     }
   }
 
-  /// Show an image preview dialog
   void _showImagePreview(File image) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Image Preview'),
-          content: Image.file(image),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              style: TextButton.styleFrom(
-                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                foregroundColor: Colors.black,
-              ),
-              child: const Text('Close'),
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.0),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12.0),
+                  child: Image.file(image),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
   }
 
-  /// Submit the expense data
   Future<void> _submitExpense() async {
     if (_formKey.currentState!.validate() && _image != null) {
       setState(() {
         _isSubmitting = true;
       });
 
-      // Gather form data
       Map<String, String> inputData = {
         'driver': Globals.userId.toString(),
         'vehicle': Globals.vehicleID.toString(),
@@ -84,25 +96,23 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
         'image': _image?.path ?? '',
       };
 
-      // Register a background task for the expense upload
-      Workmanager().registerOneOffTask(
+      await Workmanager().registerOneOffTask(
         'expenseUpload',
-        uploadExpenseTask,
+        'uploadExpenseTask',
         inputData: inputData,
-        tag: uploadExpenseTask,
+        tag: 'uploadExpenseTask',
         backoffPolicy: BackoffPolicy.linear,
       );
 
-      // Show success message
       _showSuccessDialog();
       _resetForm();
+
       setState(() {
         _isSubmitting = false;
       });
     }
   }
 
-  /// Reset the form to its initial state
   void _resetForm() {
     setState(() {
       _kmController.clear();
@@ -114,258 +124,463 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
     });
   }
 
-  /// Show a success dialog when the expense is scheduled
   void _showSuccessDialog() {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Expense Scheduled'),
-          content:
-              const Text('Your expense has been scheduled for submission.'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              style: TextButton.styleFrom(
-                backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                foregroundColor: Colors.black,
-              ),
-              child: const Text('OK'),
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color.fromARGB(255, 101, 204, 82)
+                        .withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_outline,
+                    size: 48,
+                    color: Color.fromARGB(255, 101, 204, 82),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Expense Submitted',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Your expense has been scheduled for submission',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
   }
 
-  /// Build a widget to display an image container
-  Widget _buildImageContainer(String label, File? image) {
+  Widget _buildImageContainer() {
     return Container(
-      height: 150,
-      width: 160,
       decoration: BoxDecoration(
-        color: image != null
-            ? const Color.fromARGB(255, 101, 204, 82)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(8.0),
-        border: Border.all(
-          width: 1,
-          color: Colors.black,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.4),
-            spreadRadius: 5,
-            blurRadius: 7,
-            offset: const Offset(0, 3),
+            color: Colors.black.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(color: Colors.black),
-                  ),
-                  if (image != null)
-                    const Icon(Icons.check, color: Colors.black),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _pickImage,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  side: const BorderSide(
-                      color: Color.fromARGB(255, 101, 204, 82), width: 1),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                  ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _image != null
+                  ? const Color.fromARGB(255, 101, 204, 82).withOpacity(0.1)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.photo_camera,
+                      color: const Color.fromARGB(255, 101, 204, 82),
+                      size: _image != null ? 28 : 24,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Expense Receipt',
+                      style: TextStyle(
+                        fontSize: _image != null ? 18 : 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    if (_image != null) ...[
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.check_circle,
+                        color: Color.fromARGB(255, 101, 204, 82),
+                        size: 20,
+                      ),
+                    ],
+                  ],
                 ),
-                child: const Text('Take a picture'),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed:
-                    image != null ? () => _showImagePreview(image) : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  side: const BorderSide(
-                      color: Color.fromARGB(255, 101, 204, 82), width: 1),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                  ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _pickImage,
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Take Photo'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              const Color.fromARGB(255, 101, 204, 82),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _image != null
+                            ? () => _showImagePreview(_image!)
+                            : null,
+                        icon: const Icon(Icons.preview),
+                        label: const Text('Preview'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _image != null
+                              ? const Color.fromARGB(255, 101, 204, 82)
+                              : Colors.grey,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                child: const Text('Preview'),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _kmController.dispose();
-    _remarksController.dispose();
-    _costController.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Submit Vehicle Expense'),
-        backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-      ),
-      body: SafeArea(
-        child: Stack(
+        title: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Container(
-                      margin: const EdgeInsets.symmetric(vertical: 8.0),
-                      padding: const EdgeInsets.all(16.0),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20.0),
-                        border: Border.all(
-                          width: 1,
-                          color: Colors.black,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.6),
-                            spreadRadius: 5,
-                            blurRadius: 7,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          DropdownButtonFormField<String>(
-                            decoration: const InputDecoration(
-                                labelText: 'Expense Type'),
-                            items: _expenseTypes.map((String type) {
-                              return DropdownMenuItem<String>(
-                                value: type,
-                                child: Text(type),
-                              );
-                            }).toList(),
-                            validator: (value) {
-                              if (value == null) {
-                                return 'Please select an expense type';
-                              }
-                              return null;
-                            },
-                            onChanged: (newValue) {
-                              setState(() {
-                                _selectedType = newValue;
-                                _isFuelOrOthersSelected =
-                                    newValue == 'Fuel' || newValue == 'Others';
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _kmController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'KM'),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter KM';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _remarksController,
-                            keyboardType: TextInputType.text,
-                            decoration: InputDecoration(
-                              labelText: _isFuelOrOthersSelected
-                                  ? 'Remarks'
-                                  : 'Remarks (Optional)',
-                            ),
-                            validator: (value) {
-                              if (_isFuelOrOthersSelected &&
-                                  (value == null || value.isEmpty)) {
-                                return 'Please enter remarks';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _costController,
-                            keyboardType: TextInputType.number,
-                            decoration:
-                                const InputDecoration(labelText: 'Cost'),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter cost';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16.0),
-                          _buildImageContainer('Expense Image', _image),
-                          if (_image == null)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 8.0),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            Icon(Icons.receipt_long, color: Colors.white),
+            SizedBox(width: 8),
+            Text(
+              'Submit Expense',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
-            if (_isSubmitting)
-              Container(
-                color: Colors.black.withOpacity(0.5),
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ],
+        ),
+        centerTitle: true,
+        backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+        elevation: 0,
+      ),
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.fromARGB(255, 101, 204, 82),
+              Color.fromARGB(255, 220, 247, 214),
+            ],
+            stops: [0.0, 1.0],
+          ),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      Card(
+                        elevation: 8,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            children: [
+                              const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.attach_money,
+                                    color: Color.fromARGB(255, 101, 204, 82),
+                                    size: 24,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Expense Details',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+                              DropdownButtonFormField<String>(
+                                decoration: InputDecoration(
+                                  labelText: 'Expense Type',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.category,
+                                    color: Color.fromARGB(255, 101, 204, 82),
+                                  ),
+                                ),
+                                items: _expenseTypes.map((String type) {
+                                  return DropdownMenuItem<String>(
+                                    value: type,
+                                    child: Text(type),
+                                  );
+                                }).toList(),
+                                validator: (value) {
+                                  if (value == null) {
+                                    return 'Please select an expense type';
+                                  }
+                                  return null;
+                                },
+                                onChanged: (newValue) {
+                                  setState(() {
+                                    _selectedType = newValue;
+                                    _isFuelOrOthersSelected =
+                                        newValue == 'Fuel' ||
+                                            newValue == 'Others';
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                              TextFormField(
+                                controller: _kmController,
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  labelText: 'Kilometers',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.speed,
+                                    color: Color.fromARGB(255, 101, 204, 82),
+                                  ),
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Please enter kilometers';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                              TextFormField(
+                                controller: _costController,
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  labelText: 'Cost',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.euro,
+                                    color: Color.fromARGB(255, 101, 204, 82),
+                                  ),
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Please enter cost';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                              TextFormField(
+                                controller: _remarksController,
+                                keyboardType: TextInputType.text,
+                                maxLines: 3,
+                                decoration: InputDecoration(
+                                  labelText: _isFuelOrOthersSelected
+                                      ? 'Remarks'
+                                      : 'Remarks (Optional)',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                      color: Color.fromARGB(255, 101, 204, 82),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.notes,
+                                    color: Color.fromARGB(255, 101, 204, 82),
+                                  ),
+                                ),
+                                validator: (value) {
+                                  if (_isFuelOrOthersSelected &&
+                                      (value == null || value.isEmpty)) {
+                                    return 'Please enter remarks';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Card(
+                        elevation: 8,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          child: _buildImageContainer(),
+                        ),
+                      ),
+                      const SizedBox(height: 100),
+                    ],
                   ),
                 ),
               ),
-          ],
+              if (_isSubmitting)
+                Container(
+                  color: Colors.black.withOpacity(0.5),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color.fromARGB(255, 101, 204, 82),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 16.0),
+      floatingActionButton: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         child: ElevatedButton(
           onPressed: _submitExpense,
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
             ),
+            elevation: 4,
           ),
-          child: const Text(
-            'Submit Expense',
-            style: TextStyle(color: Colors.black), // Set text color to black
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.save),
+              SizedBox(width: 8),
+              Text(
+                'Submit Expense',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
         ),
       ),

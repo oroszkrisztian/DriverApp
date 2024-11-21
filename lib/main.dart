@@ -203,7 +203,7 @@ Future<void> _cleanupAfterLogout(SharedPreferences prefs) async {
   await prefs.remove('pendingVehicleOperation');
   await prefs.remove('vehicleId');
   await prefs.remove('lastKmValue');
-  await prefs.remove('isLoggedIn');
+  //await prefs.remove('isLoggedIn');
   Globals.vehicleID = null;
   // Clear all pending operations
   await Workmanager().cancelAll();
@@ -688,20 +688,19 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> login() async {
-    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return Dialog(
-          child: const Padding(
+        return const Dialog(
+          child: Padding(
             padding: EdgeInsets.all(16.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    Color.fromARGB(255, 101, 204, 82), // Green color
+                    Color.fromARGB(255, 1, 160, 226),
                   ),
                 ),
                 SizedBox(width: 16),
@@ -712,51 +711,71 @@ class _MyHomePageState extends State<MyHomePage> {
         );
       },
     );
-
-    final response = await http.post(
-      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-      headers: <String, String>{
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: {
-        'action': 'login',
-        'username': _usernameController.text,
-        'password': _passwordController.text,
-        'type': 'driver',
-      },
-    );
-
-    var data = json.decode(response.body);
-
-    Navigator.of(context).pop(); // Hide loading dialog
-
-    if (data['success']) {
-      Globals.userId = data['driver_id'];
-      Fluttertoast.showToast(
-        msg: data['message'],
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        toastLength: Toast.LENGTH_SHORT,
+    try {
+      final response = await http.post(
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
+        headers: <String, String>{
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: {
+          'action': 'login',
+          'username': _usernameController.text,
+          'password': _passwordController.text,
+          'type': 'driver',
+        },
       );
 
-      print(Globals.userId);
-      await carServices.initializeData();
+      print("Server Response Status Code: ${response.statusCode}");
+      print("Raw Server Response: ${response.body}");
 
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('userId', Globals.userId.toString());
+      var data = json.decode(response.body);
+      print("Decoded Response Data: $data");
+      print("Success Value: ${data['success']}");
+      print("Driver ID: ${data['driver_id']}");
+      print("Message: ${data['message']}");
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const DriverPage(),
-        ),
-      );
-    } else {
+      Navigator.of(context).pop(); // Hide loading dialog
+
+      if (data['success']) {
+        if (data['driver_id'] != null) {
+          Globals.userId = data['driver_id'];
+          print("Set Global User ID to: ${Globals.userId}");
+
+          Fluttertoast.showToast(
+            msg: data['message'],
+            backgroundColor: Colors.green,
+            textColor: Colors.white,
+            toastLength: Toast.LENGTH_SHORT,
+          );
+
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
+          await prefs.setString('userId', Globals.userId.toString());
+          print("Saved to SharedPreferences - userId: ${Globals.userId}");
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const DriverPage(),
+            ),
+          );
+        } else {
+          print("Login Failed: User ID is null");
+          Fluttertoast.showToast(
+            backgroundColor: Colors.red,
+            textColor: Colors.white,
+            msg: "User not found",
+            toastLength: Toast.LENGTH_SHORT,
+          );
+        }
+      }
+    } catch (e) {
+      Navigator.of(context).pop();
+      print("Login Error: $e");
       Fluttertoast.showToast(
         backgroundColor: Colors.red,
         textColor: Colors.white,
-        msg: data['message'],
+        msg: "An error occurred: $e",
         toastLength: Toast.LENGTH_SHORT,
       );
     }
