@@ -27,7 +27,7 @@ class CarServices {
     print('Starting initializeData');
     try {
       // First try to load cached data
-      await _loadCachedData();
+      await loadCachedData();
       print(
           'Loaded cached data: ${_cars.length} cars, ${_vehiclesData.length} vehicle data');
 
@@ -235,7 +235,7 @@ class CarServices {
     }
   }
 
-  Future<void> _loadCachedData() async {
+  Future<void> loadCachedData() async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
 

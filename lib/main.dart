@@ -195,6 +195,9 @@ Future<bool> handleVehicleOperation(
     // Mark operation as processed
     inputData['processed'] = true;
     await prefs.setString('pendingVehicleOperation', json.encode(inputData));
+
+    // Cancel all WorkManager tasks after a successful operation
+    await Workmanager().cancelAll();
   }
   return success;
 }
@@ -738,6 +741,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
       if (data['success']) {
         if (data['driver_id'] != null) {
+          carServices.initializeData();
           Globals.userId = data['driver_id'];
           print("Set Global User ID to: ${Globals.userId}");
 
