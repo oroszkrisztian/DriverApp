@@ -13,42 +13,418 @@ import 'driverPage.dart'; // Import DriverPage
 // Import LoginPage
 import 'package:workmanager/workmanager.dart';
 
-// Enums and Constants
-enum VehicleOperationType { login, logout }
 
-// Constants for task names
-const String uploadImageTask = "uploadImageTask";
-const String uploadExpenseTask = "uploadExpenseTask";
+
+
+// Constants
 const String vehicleLoginTask = "vehicleLoginTask";
 const String vehicleLogoutTask = "vehicleLogoutTask";
+const String uploadExpenseTask = "uploadExpenseTask";
 const String connectivityCheckTask = "connectivityCheckTask";
 const String operationLockKey = 'operationInProgress';
-const String imageUploadLockKey = 'imageUploadInProgress';
-const String pendingImagesKey = 'pendingImages';
+const String pendingOperationKey = 'pendingOperation';
+const String pendingExpenseKey = 'pendingExpense';
 
 final CarServices carServices = CarServices();
 
-// Callback dispatcher for handling background tasks
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     switch (task) {
-      case uploadImageTask:
-        return await handleImageUpload(inputData);
+      case vehicleLoginTask:
+        return await handleVehicleOperation(inputData, isLogin: true);
+      case vehicleLogoutTask:
+        return await handleVehicleOperation(inputData, isLogin: false);
       case uploadExpenseTask:
         return await handleExpenseUpload(inputData);
-      case vehicleLoginTask:
-        return await handleVehicleOperation(
-            inputData, VehicleOperationType.login);
-      case vehicleLogoutTask:
-        return await handleVehicleOperation(
-            inputData, VehicleOperationType.logout);
       case connectivityCheckTask:
         return await handleConnectivityCheck();
       default:
         return Future.value(false);
     }
   });
+}
+
+Future<bool> handleVehicleOperation(Map<String, dynamic>? inputData, {required bool isLogin}) async {
+  if (inputData == null) {
+    print("No input data for vehicle operation");
+    return true;
+  }
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  bool isOperationInProgress = prefs.getBool(operationLockKey) ?? false;
+
+  if (isOperationInProgress) {
+    print("Another operation in progress, will retry later");
+    return false;
+  }
+
+  try {
+    await prefs.setBool(operationLockKey, true);
+    String timestamp = inputData['timestamp'] ?? '';
+    print("Starting ${isLogin ? 'login' : 'logout'} operation...");
+
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
+    );
+
+    request.fields['action'] = 'vehicle-log-photos';
+    request.fields['driver'] = inputData['driver'] ?? '';
+    request.fields['vehicle'] = inputData['vehicle'] ?? '';
+    request.fields['km'] = inputData['km'] ?? '';
+
+    // Add photos based on login/logout
+    bool hasPhotos = false;
+    if (isLogin) {
+      for (int i = 1; i <= 5; i++) {
+        String? imagePath = inputData['image$i'];
+        if (imagePath != null && await File(imagePath).exists()) {
+          request.files.add(await http.MultipartFile.fromPath('photo$i', imagePath));
+          hasPhotos = true;
+        }
+      }
+      if (inputData['parcursIn'] != null && await File(inputData['parcursIn']).exists()) {
+        request.files.add(await http.MultipartFile.fromPath('photo6', inputData['parcursIn']));
+        hasPhotos = true;
+      }
+    } else {
+      for (int i = 6; i <= 10; i++) {
+        String? imagePath = inputData['image$i'];
+        if (imagePath != null && await File(imagePath).exists()) {
+          request.files.add(await http.MultipartFile.fromPath('photo${i-5}', imagePath));
+          hasPhotos = true;
+        }
+      }
+      if (inputData['parcursOut'] != null && await File(inputData['parcursOut']).exists()) {
+        request.files.add(await http.MultipartFile.fromPath('photo6', inputData['parcursOut']));
+        hasPhotos = true;
+      }
+    }
+
+    if (!hasPhotos) {
+      print("No photos found for upload");
+      await _cleanupOperation(prefs, timestamp, isLogin);
+      return true;
+    }
+
+    print("Sending request with photos...");
+    var response = await request.send();
+    var responseData = await response.stream.bytesToString();
+    print("Operation response: $responseData");
+
+    // Handle multiple JSON responses
+    try {
+      // Split response at the first closing brace followed by an opening brace
+      List<String> responses = responseData.split('}{');
+
+      // Fix the split responses to be valid JSON
+      if (responses.length > 1) {
+        responses[0] = responses[0] + '}';
+        responses[1] = '{' + responses[1];
+      }
+
+      // Parse first response (vehicle operation)
+      var operationResult = json.decode(responses[0]);
+      bool operationSuccess = operationResult['success'] == true;
+
+      // Parse second response (photo upload) if exists
+      bool photoSuccess = true;
+      if (responses.length > 1) {
+        var photoResult = json.decode(responses[1]);
+        photoSuccess = photoResult['success'] == true;
+      }
+
+      if (operationSuccess && photoSuccess) {
+        await _cleanupOperation(prefs, timestamp, isLogin);
+
+        // Cancel the background task for this operation
+        String taskName = isLogin ? "vehicleLogin_$timestamp" : "vehicleLogout_$timestamp";
+        await Workmanager().cancelByUniqueName(taskName);
+
+        return true;
+      }
+    } catch (e) {
+      print('Error parsing operation response: $e');
+    }
+
+    return false;
+  } catch (e) {
+    print('Error in vehicle operation: $e');
+    return false;
+  } finally {
+    await prefs.setBool(operationLockKey, false);
+  }
+}
+
+
+Future<void> _cleanupOperation(SharedPreferences prefs, String timestamp, bool isLogin) async {
+  await prefs.remove(pendingOperationKey);
+
+  // Cancel specific operation task
+  String taskName = isLogin ? "vehicleLogin_$timestamp" : "vehicleLogout_$timestamp";
+  await Workmanager().cancelByUniqueName(taskName);
+
+  if (!isLogin) {
+    // Additional cleanup for logout
+    await prefs.remove('vehicleId');
+    await prefs.remove('lastKmValue');
+    Globals.vehicleID = null;
+    Globals.kmValue = null;
+  }
+}
+
+Future<bool> loginVehicle(String loginDate) async {
+  var connectivityResult = await Connectivity().checkConnectivity();
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  Map<String, dynamic> operationData = {
+    'driver': Globals.userId.toString(),
+    'vehicle': Globals.vehicleID.toString(),
+    'km': Globals.kmValue.toString(),
+    'timestamp': loginDate,
+  };
+
+  // Add photos
+  if (Globals.image1?.path != null) operationData['image1'] = Globals.image1!.path;
+  if (Globals.image2?.path != null) operationData['image2'] = Globals.image2!.path;
+  if (Globals.image3?.path != null) operationData['image3'] = Globals.image3!.path;
+  if (Globals.image4?.path != null) operationData['image4'] = Globals.image4!.path;
+  if (Globals.image5?.path != null) operationData['image5'] = Globals.image5!.path;
+  if (Globals.parcursIn?.path != null) operationData['parcursIn'] = Globals.parcursIn!.path;
+
+  // Save state
+  await prefs.setBool('isLoggedIn', true);
+  await prefs.setInt('vehicleId', Globals.vehicleID!);
+  await prefs.setString('lastKmValue', Globals.kmValue.toString());
+  await _saveImagesToPrefs();
+
+  if (connectivityResult != ConnectivityResult.none) {
+    bool success = await handleVehicleOperation(operationData, isLogin: true);
+    if (success) {
+      Fluttertoast.showToast(
+        msg: "Login successful",
+        backgroundColor: Colors.green,
+        textColor: Colors.white,
+      );
+      String taskName = "vehicleLogin_$loginDate";
+      await Workmanager().cancelByUniqueName(taskName);
+      return true;
+    }
+  }
+
+  // Store for background processing
+  await prefs.setString(pendingOperationKey, jsonEncode(operationData));
+
+  // Add to pending operations list
+  List<Map<String, dynamic>> pendingOperations = [];
+  String? existingOperations = prefs.getString('pendingOperations');
+  if (existingOperations != null) {
+    pendingOperations = List<Map<String, dynamic>>.from(jsonDecode(existingOperations));
+  }
+  pendingOperations.add(operationData);
+  await prefs.setString('pendingOperations', jsonEncode(pendingOperations));
+
+  // Schedule task
+  String taskName = "vehicleLogin_$loginDate";
+  print("Registering task with name: $taskName");
+  await Workmanager().registerOneOffTask(
+    taskName,
+    vehicleLoginTask,
+    inputData: operationData,
+    constraints: Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: false,
+      requiresDeviceIdle: false,
+      requiresStorageNotLow: false,
+    ),
+    initialDelay: const Duration(seconds: 10),
+    existingWorkPolicy: ExistingWorkPolicy.keep,
+    backoffPolicy: BackoffPolicy.exponential,
+    backoffPolicyDelay: const Duration(seconds: 30),
+  );
+
+  Fluttertoast.showToast(
+    msg: "Login scheduled for background upload",
+    backgroundColor: Colors.orange,
+    textColor: Colors.white,
+  );
+
+  return true;
+}
+
+
+Future<bool> logoutVehicle(String logoutDate) async {
+  var connectivityResult = await Connectivity().checkConnectivity();
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  Map<String, dynamic> operationData = {
+    'driver': Globals.userId.toString(),
+    'vehicle': Globals.vehicleID.toString(),
+    'km': Globals.kmValue.toString(),
+    'timestamp': logoutDate,
+  };
+
+  if (Globals.image6?.path != null) operationData['image6'] = Globals.image6!.path;
+  if (Globals.image7?.path != null) operationData['image7'] = Globals.image7!.path;
+  if (Globals.image8?.path != null) operationData['image8'] = Globals.image8!.path;
+  if (Globals.image9?.path != null) operationData['image9'] = Globals.image9!.path;
+  if (Globals.image10?.path != null) operationData['image10'] = Globals.image10!.path;
+  if (Globals.parcursOut?.path != null) operationData['parcursOut'] = Globals.parcursOut!.path;
+
+  if (connectivityResult != ConnectivityResult.none) {
+    bool success = await handleVehicleOperation(operationData, isLogin: false);
+    if (success) {
+      await _cleanupOperation(prefs, logoutDate, false);
+      String taskName = "vehicleLogout_$logoutDate";
+      await Workmanager().cancelByUniqueName(taskName);
+
+      Fluttertoast.showToast(
+        msg: "Logout successful",
+        backgroundColor: Colors.green,
+        textColor: Colors.white,
+      );
+      return true;
+    }
+  }
+
+  await prefs.setString(pendingOperationKey, jsonEncode(operationData));
+
+  // Add to pending operations list
+  List<Map<String, dynamic>> pendingOperations = [];
+  String? existingOperations = prefs.getString('pendingOperations');
+  if (existingOperations != null) {
+    pendingOperations = List<Map<String, dynamic>>.from(jsonDecode(existingOperations));
+  }
+  pendingOperations.add(operationData);
+  await prefs.setString('pendingOperations', jsonEncode(pendingOperations));
+
+  String taskName = "vehicleLogout_$logoutDate";
+  print("Registering task with name: $taskName");
+  await Workmanager().registerOneOffTask(
+    taskName,
+    vehicleLogoutTask,
+    inputData: operationData,
+    constraints: Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: false,
+      requiresDeviceIdle: false,
+      requiresStorageNotLow: false,
+    ),
+    initialDelay: const Duration(seconds: 10),
+    existingWorkPolicy: ExistingWorkPolicy.keep,
+    backoffPolicy: BackoffPolicy.exponential,
+    backoffPolicyDelay: const Duration(seconds: 30),
+  );
+
+  Fluttertoast.showToast(
+    msg: "Logout scheduled for background upload",
+    backgroundColor: Colors.orange,
+    textColor: Colors.white,
+  );
+
+  return true;
+}
+
+Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
+  if (inputData == null) {
+    print("No input data for expense upload");
+    return true;
+  }
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String timestamp = inputData['timestamp'] ?? '';
+
+  try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
+    );
+
+    request.fields['action'] = 'vehicle-expense';
+    request.fields['driver'] = inputData['driver'] ?? '';
+    request.fields['vehicle'] = inputData['vehicle'] ?? '';
+    request.fields['km'] = inputData['km'] ?? '';
+    request.fields['type'] = inputData['type'] ?? '';
+    request.fields['remarks'] = inputData['remarks'] ?? '';
+    request.fields['cost'] = inputData['cost'] ?? '';
+
+    // Add expense photo if exists
+    String? imagePath = inputData['image'];
+    if (imagePath != null && imagePath.isNotEmpty) {
+      File imageFile = File(imagePath);
+      if (await imageFile.exists()) {
+        request.files.add(await http.MultipartFile.fromPath('photo', imagePath));
+      }
+    }
+
+    print("Sending expense request...");
+    var response = await request.send();
+    var responseData = await response.stream.bytesToString();
+    print("Expense response: $responseData");
+
+    if (response.statusCode == 200) {
+      var data = json.decode(responseData);
+      if (data['success'] == true) {
+        await prefs.remove(pendingExpenseKey);
+        await Workmanager().cancelByUniqueName("expense_$timestamp");
+        return true;
+      }
+    }
+
+    return false;
+  } catch (e) {
+    print('Error uploading expense: $e');
+    return false;
+  }
+}
+
+Future<bool> uploadExpense(Map<String, dynamic> expenseData) async {
+  var connectivityResult = await Connectivity().checkConnectivity();
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  String timestamp = DateTime.now().toIso8601String();
+  expenseData['timestamp'] = timestamp;
+
+  if (connectivityResult != ConnectivityResult.none) {
+    // Try immediate upload if we have connection
+    bool success = await handleExpenseUpload(expenseData);
+    if (success) {
+      Fluttertoast.showToast(
+        msg: "Expense uploaded successfully",
+        backgroundColor: Colors.green,
+        textColor: Colors.white,
+      );
+      return true;
+    }
+  }
+
+  // If immediate upload failed or no connection, save for background upload
+  await prefs.setString(pendingExpenseKey, jsonEncode(expenseData));
+
+  await Workmanager().registerOneOffTask(
+    "expense_$timestamp",
+    uploadExpenseTask,
+    inputData: expenseData,
+    constraints: Constraints(
+      networkType: NetworkType.connected,
+      requiresBatteryNotLow: false,
+      requiresDeviceIdle: false,
+      requiresStorageNotLow: false,
+    ),
+    initialDelay: const Duration(seconds: 10),
+    existingWorkPolicy: ExistingWorkPolicy.keep,
+    backoffPolicy: BackoffPolicy.exponential,
+    backoffPolicyDelay: const Duration(seconds: 30),
+  );
+
+  Fluttertoast.showToast(
+    msg: "Expense saved for background upload",
+    backgroundColor: Colors.orange,
+    textColor: Colors.white,
+  );
+
+  return true;
 }
 
 Future<bool> handleConnectivityCheck() async {
@@ -58,46 +434,45 @@ Future<bool> handleConnectivityCheck() async {
     bool hasLock = false;
 
     try {
-      // Try to acquire lock
-      if (prefs.getBool(lockKey) == true) {
-        return true; // Another operation in progress
-      }
+      if (prefs.getBool(lockKey) == true) return true;
       await prefs.setBool(lockKey, true);
       hasLock = true;
 
       var connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult != ConnectivityResult.none) {
-        // Process pending vehicle operations first
-        String? pendingOperation = prefs.getString('pendingVehicleOperation');
+        // Get all pending operations and sort by timestamp
+        List<Map<String, dynamic>> pendingOperations = [];
+        String? pendingOperation = prefs.getString(pendingOperationKey);
+
         if (pendingOperation != null) {
           Map<String, dynamic> operationData = jsonDecode(pendingOperation);
-          String timestamp = operationData['datetime'] ?? '';
+          pendingOperations.add(operationData);
+        }
 
-          // Check if operation was already processed
+        // Sort operations by timestamp
+        pendingOperations.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
+
+        // Process operations in order
+        for (var operation in pendingOperations) {
+          String timestamp = operation['timestamp'] ?? '';
+          bool isLogin = operation.containsKey('parcursIn');
+
           bool wasProcessed = prefs.getBool('processed_${timestamp}') ?? false;
           if (!wasProcessed) {
-            bool success = await uploadVehicleOperation(operationData);
+            bool success = await handleVehicleOperation(operation, isLogin: isLogin);
             if (success) {
+              await _cleanupOperation(prefs, timestamp, isLogin);
               await prefs.setBool('processed_${timestamp}', true);
-              await prefs.remove('pendingVehicleOperation');
-
-              if (operationData['operationType'] == 'logout') {
-                await _cleanupAfterLogout(prefs);
-                // Cancel any pending tasks after successful logout
-                await Workmanager().cancelAll();
-              }
+            } else {
+              // Stop processing if an operation fails
+              break;
             }
           }
         }
-
-        // Then handle pending images
-        await handlePendingImageUploads(prefs);
       }
       return true;
     } finally {
-      if (hasLock) {
-        await prefs.setBool(lockKey, false);
-      }
+      if (hasLock) await prefs.setBool(lockKey, false);
     }
   } catch (e) {
     print('Error in connectivity check: $e');
@@ -105,440 +480,30 @@ Future<bool> handleConnectivityCheck() async {
   }
 }
 
-Future<void> handlePendingImageUploads(SharedPreferences prefs) async {
-  String? pendingImages = prefs.getString(pendingImagesKey);
-  if (pendingImages != null) {
-    Map<String, dynamic> imageData = jsonDecode(pendingImages);
-    String timestamp = imageData['timestamp'] ?? '';
 
-    bool wasProcessed = prefs.getBool('processed_image_${timestamp}') ?? false;
-    if (!wasProcessed) {
-      bool success = await uploadImages(imageData);
-      if (success) {
-        await prefs.setBool('processed_image_${timestamp}', true);
-        await prefs.remove(pendingImagesKey);
-      }
-    }
-  }
-}
 
-// Handling image upload task
-Future<bool> handleImageUpload(Map<String, dynamic>? inputData) async {
-  if (inputData == null) {
-    print("No input data for image upload");
-    return false;
-  }
 
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  bool isUploadInProgress = prefs.getBool(imageUploadLockKey) ?? false;
-
-  if (isUploadInProgress) {
-    print("Another image upload is in progress");
-    return false;
-  }
-
-  try {
-    await prefs.setBool(imageUploadLockKey, true);
-    await prefs.setString(pendingImagesKey, jsonEncode(inputData));
-
-    bool success = await uploadImages(inputData);
-
-    if (success) {
-      await prefs.remove(pendingImagesKey);
-    }
-
-    return success;
-  } catch (e) {
-    print('Error in image upload task: $e');
-    return false;
-  } finally {
-    await prefs.setBool(imageUploadLockKey, false);
-  }
-}
-
-// Handling expense upload task
-Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
-  var connectivityResult = await Connectivity().checkConnectivity();
-  if (connectivityResult == ConnectivityResult.none) {
-    print('No internet connection. Saving expense locally.');
-    return false;
-  }
-  return await uploadExpense(inputData);
-}
-
-Future<bool> handleVehicleOperation(
-    Map<String, dynamic>? inputData, VehicleOperationType operationType) async {
-  if (inputData == null) return false;
-
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  String? existingOperation = prefs.getString('pendingVehicleOperation');
-
-  if (existingOperation != null) {
-    Map<String, dynamic> existingData = jsonDecode(existingOperation);
-    if (existingData['processed'] == true) {
-      // Operation already processed, don't duplicate
-      return true;
-    }
-  }
-
-  var connectivityResult = await Connectivity().checkConnectivity();
-  if (connectivityResult == ConnectivityResult.none) {
-    if (operationType == VehicleOperationType.logout) {
-      inputData['requestedLogout'] = true;
-    }
-    await prefs.setString('pendingVehicleOperation', json.encode(inputData));
-    return false;
-  }
-
-  bool success = await uploadVehicleOperation(inputData);
-  if (success) {
-    // Mark operation as processed
-    inputData['processed'] = true;
-    await prefs.setString('pendingVehicleOperation', json.encode(inputData));
-
-    // Cancel all WorkManager tasks after a successful operation
-    await Workmanager().cancelAll();
-  }
-  return success;
-}
-
-Future<void> _cleanupAfterLogout(SharedPreferences prefs) async {
-  await prefs.remove('pendingVehicleOperation');
-  await prefs.remove('vehicleId');
-  await prefs.remove('lastKmValue');
-  //await prefs.remove('isLoggedIn');
-  Globals.vehicleID = null;
-  // Clear all pending operations
-  await Workmanager().cancelAll();
-}
-
-Future<bool> uploadVehicleOperation(Map<String, dynamic>? inputData) async {
-  if (inputData == null) return false;
-
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  String? existingOperation = prefs.getString('pendingVehicleOperation');
-
-  if (existingOperation != null) {
-    Map<String, dynamic> existingData = jsonDecode(existingOperation);
-    if (existingData['processed'] == true &&
-        existingData['operationId'] == inputData['operationId']) {
-      // Skip if this specific operation was already processed
-      return true;
-    }
-  }
-
-  try {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-    );
-    request.fields['action'] = 'vehicle-login';
-    request.fields['driver'] = inputData['driver'] ?? '';
-    request.fields['vehicle'] = inputData['vehicle'] ?? '';
-    request.fields['km'] = inputData['km'] ?? '';
-    request.fields['time'] = inputData['datetime'] ?? '';
-
-    var response = await request.send();
-    if (response.statusCode == 200) {
-      // Mark operation as processed
-      inputData['processed'] = true;
-      await prefs.setString('pendingVehicleOperation', jsonEncode(inputData));
-      return true;
-    }
-    return false;
-  } catch (e) {
-    print('Error during vehicle ${inputData['operationType']} operation: $e');
-    return false;
-  }
-}
-
-Future<bool> uploadImages(Map<String, dynamic>? inputData) async {
-  if (inputData == null) {
-    print("No input data for image upload");
-    return false;
-  }
-
-  try {
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
-    );
-
-    request.fields['action'] = 'photo-upload';
-    request.fields['driver'] = inputData['userId'] ?? '';
-    request.fields['vehicle'] = inputData['vehicleID'] ?? '';
-    request.fields['km'] = inputData['km'] ?? '';
-
-    print('Action: ${request.fields['action']}');
-    print('Driver ID: ${request.fields['driver']}');
-    print('Vehicle ID: ${request.fields['vehicle']}');
-    print('KM: ${request.fields['km']}');
-
-    for (int i = 1; i <= 6; i++) {
-      String? imagePath = inputData['image$i'];
-      if (imagePath != null && imagePath.isNotEmpty) {
-        request.files
-            .add(await http.MultipartFile.fromPath('photo$i', imagePath));
-      }
-    }
-
-    var response = await request.send();
-    if (response.statusCode == 200) {
-      print("Image upload complete");
-      return true;
-    } else {
-      print("Image upload failed: ${response.statusCode}");
-      return false;
-    }
-  } catch (e) {
-    print('Error uploading images: $e');
-    return false;
-  }
-}
-
-Future<bool> uploadExpense(Map<String, dynamic>? inputData) async {
-  if (inputData == null) {
-    print("No input data for expense upload");
-    return false;
-  }
-
-  var request = http.MultipartRequest(
-    'POST',
-    Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
-  );
-
-  request.fields['action'] = 'vehicle-expense';
-  request.fields['driver'] = inputData['driver'] ?? '';
-  request.fields['vehicle'] = inputData['vehicle'] ?? '';
-  request.fields['km'] = inputData['km'] ?? '';
-  request.fields['type'] = inputData['type'] ?? '';
-  request.fields['remarks'] = inputData['remarks'] ?? '';
-  request.fields['cost'] = inputData['cost'] ?? '';
-
-  String? imagePath = inputData['image'];
-
-  if (imagePath != null && imagePath.isNotEmpty) {
-    request.files.add(await http.MultipartFile.fromPath('photo', imagePath));
-  }
-
-  try {
-    var response = await request.send();
-    if (response.statusCode == 200) {
-      print('Expense uploaded successfully in the background');
-      return true;
-    } else {
-      print(
-          'Failed to upload expense in the background: ${response.statusCode}');
-      return false;
-    }
-  } catch (e) {
-    print('Error uploading expense in background: $e');
-    return false;
-  }
-}
-
-Future<void> _uploadSavedExpenses() async {
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-  String? expenseData = prefs.getString("expensesData");
-  if (expenseData != null) {
-    print("Attempting to send saved expenses...");
-    Map<String, dynamic> inputData = jsonDecode(expenseData);
-    bool success = await uploadExpense(inputData);
-    if (success) {
-      await prefs.remove("expensesData");
-    }
-  }
-}
-
-Future<void> loginVehicle(String loginDate) async {
-  try {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-
-    Map<String, dynamic> operationData = {
-      'driver': Globals.userId.toString(),
-      'vehicle': Globals.vehicleID.toString(),
-      'km': Globals.kmValue.toString(),
-      'operationType': 'login',
-      'datetime': loginDate,
-    };
-
-    // Save operation data first
-    await prefs.setBool('isLoggedIn', true);
-    await prefs.setInt('vehicleId', Globals.vehicleID!);
-    await prefs.setString('lastKmValue', Globals.kmValue.toString());
-    await _saveImagesToPrefs(); // Save images when logging in
-
-    // Then schedule the task
-    await Workmanager().registerOneOffTask(
-      "vehicleLogin_$loginDate",
-      vehicleLoginTask,
-      inputData: operationData,
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
-      existingWorkPolicy: ExistingWorkPolicy.append,
-    );
-
-    print("Vehicle login operation scheduled for: $loginDate");
-  } catch (e) {
-    print('Error scheduling vehicle login: $e');
-  }
-}
-
-Future<void> logoutVehicle(String logoutDate) async {
-  try {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-
-    Map<String, dynamic> operationData = {
-      'driver': Globals.userId.toString(),
-      'vehicle': Globals.vehicleID.toString(),
-      'km': Globals.kmValue.toString(),
-      'operationType': 'logout',
-      'datetime': logoutDate,
-      'timestamp': DateTime.now().millisecondsSinceEpoch.toString(),
-    };
-
-    // Save operation data
-    await prefs.setString('pendingVehicleOperation', jsonEncode(operationData));
-
-    // Try immediate logout if connected
-    var connectivityResult = await Connectivity().checkConnectivity();
-    if (connectivityResult != ConnectivityResult.none) {
-      bool success = await uploadVehicleOperation(operationData);
-      if (success) {
-        await _cleanupAfterLogout(prefs);
-        return;
-      }
-    }
-
-    // Schedule background task
-    await Workmanager().registerOneOffTask(
-      "vehicleLogout_$logoutDate",
-      vehicleLogoutTask,
-      inputData: operationData,
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        requiresBatteryNotLow: true,
-      ),
-      existingWorkPolicy: ExistingWorkPolicy.keep,
-    );
-  } catch (e) {
-    print('Error scheduling vehicle logout: $e');
-    throw e;
-  }
-}
-
-void _listenForConnectivityChanges() {
-  Connectivity()
-      .onConnectivityChanged
-      .listen((ConnectivityResult result) async {
-    if (result != ConnectivityResult.none) {
-      // Only handle expenses in the connectivity listener
-      await _uploadSavedExpenses();
-    }
-  });
-}
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  SharedPreferences prefs = await SharedPreferences.getInstance();
-
-  // Reset stale locks
-  await prefs.setBool(operationLockKey, false);
-  await prefs.setBool(imageUploadLockKey, false);
-
-  // Remove any unintentional pending operations
-  String? pendingOperation = prefs.getString('pendingVehicleOperation');
-  if (pendingOperation != null) {
-    Map<String, dynamic> operationData = jsonDecode(pendingOperation);
-    if (operationData['requestedLogout'] != true) {
-      await prefs.remove('pendingVehicleOperation');
-    }
-  }
-
-  // Initialize Workmanager
-  await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
-
-  bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-  int? activeVehicleId = prefs.getInt('vehicleId');
-  String? userId = prefs.getString('userId');
-
-  if (isLoggedIn && userId != null) {
-    Globals.userId = int.tryParse(userId);
-    Globals.vehicleID = activeVehicleId;
-    Globals.kmValue = prefs.getString('lastKmValue');
-
-    await _loadImagesFromPrefs();
-
-    // Only register connectivity check if logged into a vehicle
-    if (activeVehicleId != null) {
-      await Workmanager().registerPeriodicTask(
-        "connectivityCheck",
-        connectivityCheckTask,
-        frequency: const Duration(minutes: 15),
-        constraints: Constraints(
-          networkType: NetworkType.connected,
-          requiresBatteryNotLow: true,
-        ),
-        existingWorkPolicy: ExistingWorkPolicy.replace,
-        inputData: {
-          'checkType': 'periodic', // Add this to identify periodic checks
-        },
-      );
-    }
-
-    try {
-      await carServices.initializeData();
-    } catch (e) {
-      print('Error initializing car services: $e');
-    }
-  }
-
-  _listenForConnectivityChanges();
-
-  runApp(MyApp(isLoggedIn: isLoggedIn));
-}
-
-Future<void> schedulePeriodicUpload() async {
-  Workmanager().registerPeriodicTask(
-    "uploadExpenseTaskId",
-    uploadExpenseTask,
-    frequency: const Duration(minutes: 15),
-    inputData: {},
-  );
-}
 
 Future<void> _saveImagesToPrefs() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
-  if (Globals.image1?.path != null)
-    await prefs.setString('image1', Globals.image1!.path);
-  if (Globals.image2?.path != null)
-    await prefs.setString('image2', Globals.image2!.path);
-  if (Globals.image3?.path != null)
-    await prefs.setString('image3', Globals.image3!.path);
-  if (Globals.image4?.path != null)
-    await prefs.setString('image4', Globals.image4!.path);
-  if (Globals.image5?.path != null)
-    await prefs.setString('image5', Globals.image5!.path);
-  if (Globals.image6?.path != null)
-    await prefs.setString('image6', Globals.image6!.path);
-  if (Globals.image7?.path != null)
-    await prefs.setString('image7', Globals.image7!.path);
-  if (Globals.image8?.path != null)
-    await prefs.setString('image8', Globals.image8!.path);
-  if (Globals.image9?.path != null)
-    await prefs.setString('image9', Globals.image9!.path);
-  if (Globals.image10?.path != null)
-    await prefs.setString('image10', Globals.image10!.path);
-  if (Globals.parcursIn?.path != null)
-    await prefs.setString('parcursIn', Globals.parcursIn!.path);
-  if (Globals.parcursOut?.path != null)
-    await prefs.setString('parcursOut', Globals.parcursOut!.path);
+
+  // Login images (1-5 and parcursIn)
+  if (Globals.image1?.path != null) await prefs.setString('image1', Globals.image1!.path);
+  if (Globals.image2?.path != null) await prefs.setString('image2', Globals.image2!.path);
+  if (Globals.image3?.path != null) await prefs.setString('image3', Globals.image3!.path);
+  if (Globals.image4?.path != null) await prefs.setString('image4', Globals.image4!.path);
+  if (Globals.image5?.path != null) await prefs.setString('image5', Globals.image5!.path);
+  if (Globals.parcursIn?.path != null) await prefs.setString('parcursIn', Globals.parcursIn!.path);
+
+  // Logout images (6-10 and parcursOut)
+  if (Globals.image6?.path != null) await prefs.setString('image6', Globals.image6!.path);
+  if (Globals.image7?.path != null) await prefs.setString('image7', Globals.image7!.path);
+  if (Globals.image8?.path != null) await prefs.setString('image8', Globals.image8!.path);
+  if (Globals.image9?.path != null) await prefs.setString('image9', Globals.image9!.path);
+  if (Globals.image10?.path != null) await prefs.setString('image10', Globals.image10!.path);
+  if (Globals.parcursOut?.path != null) await prefs.setString('parcursOut', Globals.parcursOut!.path);
 }
 
-// Function to load images from SharedPreferences
 Future<void> _loadImagesFromPrefs() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
 
@@ -552,19 +517,81 @@ Future<void> _loadImagesFromPrefs() async {
     return null;
   }
 
+  // Load login images (1-5 and parcursIn)
   Globals.image1 = await getFileIfExists(prefs.getString('image1'));
   Globals.image2 = await getFileIfExists(prefs.getString('image2'));
   Globals.image3 = await getFileIfExists(prefs.getString('image3'));
   Globals.image4 = await getFileIfExists(prefs.getString('image4'));
   Globals.image5 = await getFileIfExists(prefs.getString('image5'));
+  Globals.parcursIn = await getFileIfExists(prefs.getString('parcursIn'));
+
+  // Load logout images (6-10 and parcursOut)
   Globals.image6 = await getFileIfExists(prefs.getString('image6'));
   Globals.image7 = await getFileIfExists(prefs.getString('image7'));
   Globals.image8 = await getFileIfExists(prefs.getString('image8'));
   Globals.image9 = await getFileIfExists(prefs.getString('image9'));
   Globals.image10 = await getFileIfExists(prefs.getString('image10'));
-  Globals.parcursIn = await getFileIfExists(prefs.getString('parcursIn'));
   Globals.parcursOut = await getFileIfExists(prefs.getString('parcursOut'));
 }
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+
+  // Reset stale locks
+  await prefs.setBool(operationLockKey, false);
+
+  // Initialize Workmanager
+  await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
+
+  bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+  int? activeVehicleId = prefs.getInt('vehicleId');
+  String? userId = prefs.getString('userId');
+
+  if (isLoggedIn && userId != null) {
+    Globals.userId = int.tryParse(userId);
+    Globals.vehicleID = activeVehicleId;
+    Globals.kmValue = prefs.getString('lastKmValue');
+
+    // Load saved images
+    await _loadImagesFromPrefs();
+
+    // Register periodic tasks if logged in
+    if (activeVehicleId != null) {
+      await Workmanager().registerPeriodicTask(
+        "connectivityCheck",
+        connectivityCheckTask,
+        frequency: const Duration(minutes: 15),
+        constraints: Constraints(
+          networkType: NetworkType.connected,
+          requiresBatteryNotLow: false,
+          requiresDeviceIdle: false,
+          requiresStorageNotLow: false,
+        ),
+        initialDelay: const Duration(minutes: 1),
+        existingWorkPolicy: ExistingWorkPolicy.replace,
+      );
+    }
+
+    try {
+      await carServices.initializeData();
+    } catch (e) {
+      print('Error initializing car services: $e');
+    }
+  }
+
+  // Set up connectivity listener
+  Connectivity().onConnectivityChanged.listen((ConnectivityResult result) async {
+    if (result != ConnectivityResult.none) {
+      // Check for pending operations when connectivity is restored
+      await handleConnectivityCheck();
+    }
+  });
+
+  runApp(MyApp(isLoggedIn: isLoggedIn));
+}
+
+
 
 class InitialLoadingScreen extends StatefulWidget {
   final bool isLoggedIn;
@@ -716,7 +743,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
     try {
       final response = await http.post(
-        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
+        Uri.parse('https://vinczefi.com/greenfleet/flutter_functions.php'),
         headers: <String, String>{
           'Content-Type': 'application/x-www-form-urlencoded',
         },

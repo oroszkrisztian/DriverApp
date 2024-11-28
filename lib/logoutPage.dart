@@ -315,7 +315,7 @@ class _LogoutPageState extends State<LogoutPage> {
       };
 
       // Save pending images
-      await prefs.setString(pendingImagesKey, jsonEncode(logoutImages));
+      //await prefs.setString(jsonEncode(logoutImages));
 
       _showLoggingOutDialog();
 
@@ -324,17 +324,17 @@ class _LogoutPageState extends State<LogoutPage> {
         await logoutVehicle(logoutDate);
 
         // Schedule image upload task
-        await Workmanager().registerOneOffTask(
-            "imageUpload_logout_${DateTime.now().millisecondsSinceEpoch}",
-            uploadImageTask,
-            inputData: logoutImages,
-            constraints: Constraints(
-              networkType: NetworkType.connected,
-              requiresBatteryNotLow: true,
-            ),
-            existingWorkPolicy: ExistingWorkPolicy.append,
-            backoffPolicy: BackoffPolicy.linear,
-            backoffPolicyDelay: const Duration(seconds: 30));
+        // await Workmanager().registerOneOffTask(
+        //     "imageUpload_logout_${DateTime.now().millisecondsSinceEpoch}",
+        //     uploadImageTask,
+        //     inputData: logoutImages,
+        //     constraints: Constraints(
+        //       networkType: NetworkType.connected,
+        //       requiresBatteryNotLow: true,
+        //     ),
+        //     existingWorkPolicy: ExistingWorkPolicy.append,
+        //     backoffPolicy: BackoffPolicy.linear,
+        //     backoffPolicyDelay: const Duration(seconds: 30));
 
         _hideLoggingOutDialog();
 

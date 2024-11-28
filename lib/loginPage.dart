@@ -319,7 +319,7 @@ class _LoginPageState extends State<LoginPage> {
       // Save login state and data
       await prefs.setBool('isLoggedIn', true);
       await prefs.setInt('vehicleId', _selectedCarId!);
-      await prefs.setString(pendingImagesKey, jsonEncode(loginImages));
+      //await prefs.setString(pendingImagesKey, jsonEncode(loginImages));
 
       // KM validation
       _lastKm ??= 0;
@@ -354,17 +354,17 @@ class _LoginPageState extends State<LoginPage> {
       await loginVehicle(loginDate);
 
       // Schedule image upload task
-      await Workmanager().registerOneOffTask(
-          "imageUpload_login_${DateTime.now().millisecondsSinceEpoch}",
-          uploadImageTask,
-          inputData: loginImages,
-          constraints: Constraints(
-            networkType: NetworkType.connected,
-            requiresBatteryNotLow: true,
-          ),
-          existingWorkPolicy: ExistingWorkPolicy.append,
-          backoffPolicy: BackoffPolicy.linear,
-          backoffPolicyDelay: const Duration(seconds: 30));
+      // await Workmanager().registerOneOffTask(
+      //     "imageUpload_login_${DateTime.now().millisecondsSinceEpoch}",
+      //     uploadImageTask,
+      //     inputData: loginImages,
+      //     constraints: Constraints(
+      //       networkType: NetworkType.connected,
+      //       requiresBatteryNotLow: true,
+      //     ),
+      //     existingWorkPolicy: ExistingWorkPolicy.append,
+      //     backoffPolicy: BackoffPolicy.linear,
+      //     backoffPolicyDelay: const Duration(seconds: 30));
 
       _hideLoggingDialog();
 
