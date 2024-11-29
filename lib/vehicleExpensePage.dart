@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
+import 'driverPage.dart';
 import 'globals.dart';
+import 'main.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 
 class VehicleExpensePage extends StatefulWidget {
   const VehicleExpensePage({Key? key}) : super(key: key);
@@ -35,11 +39,22 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
 
   /// Pick an image using the camera
   Future<void> _pickImage() async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.camera);
-    if (pickedFile != null) {
-      setState(() {
-        _image = File(pickedFile.path);
-      });
+    // Get the MyAppState
+    final myAppState = context.findAncestorStateOfType<MyAppState>();
+
+    try {
+      // Set camera in use
+      myAppState?.setCameraState(true);
+
+      final pickedFile = await _picker.pickImage(source: ImageSource.camera);
+      if (pickedFile != null) {
+        setState(() {
+          _image = File(pickedFile.path);
+        });
+      }
+    } finally {
+      // Always set camera not in use when done
+      myAppState?.setCameraState(false);
     }
   }
 
@@ -86,45 +101,41 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
         _isSubmitting = true;
       });
 
-      Map<String, String> inputData = {
-        'driver': Globals.userId.toString(),
-        'vehicle': Globals.vehicleID.toString(),
-        'km': _kmController.text,
-        'type': _selectedType!.toLowerCase(),
-        'remarks': _remarksController.text,
-        'cost': _costController.text,
-        'image': _image?.path ?? '',
-      };
+      try {
+        Map<String, String> expenseData = {
+          'driver': Globals.userId.toString(),
+          'vehicle': Globals.vehicleID.toString(),
+          'km': _kmController.text,
+          'type': _selectedType!.toLowerCase(),
+          'remarks': _remarksController.text,
+          'cost': _costController.text.replaceAll(',', '.'),
+          'image': _image?.path ?? '',
+        };
 
-      await Workmanager().registerOneOffTask(
-        'expenseUpload',
-        'uploadExpenseTask',
-        inputData: inputData,
-        tag: 'uploadExpenseTask',
-        backoffPolicy: BackoffPolicy.linear,
-      );
+        bool success = await uploadExpense(expenseData);
 
-      _showSuccessDialog();
-      _resetForm();
-
-      setState(() {
-        _isSubmitting = false;
-      });
+        if (success) {
+          _showSuccessDialog();
+          _resetForm();
+        }
+      } catch (e) {
+        // Show error to user
+        Fluttertoast.showToast(
+          msg: "Error submitting expense: $e",
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSubmitting = false;
+          });
+        }
+      }
     }
   }
 
-  void _resetForm() {
-    setState(() {
-      _kmController.clear();
-      _remarksController.clear();
-      _costController.clear();
-      _selectedType = null;
-      _image = null;
-      _isFuelOrOthersSelected = false;
-    });
-  }
-
-  void _showSuccessDialog() {
+  Future<void> _showSuccessDialog() async {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -164,17 +175,27 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Your expense has been scheduled for submission',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.black54,
-                  ),
-                  textAlign: TextAlign.center,
+                FutureBuilder<ConnectivityResult>(
+                  future: Connectivity().checkConnectivity(),
+                  builder: (context, snapshot) {
+                    return Text(
+                      snapshot.data != ConnectivityResult.none
+                          ? 'Your expense has been uploaded successfully'
+                          : 'Your expense has been saved for later upload',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.black54,
+                      ),
+                      textAlign: TextAlign.center,
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () => Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (context) => const DriverPage()),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color.fromARGB(255, 101, 204, 82),
                     foregroundColor: Colors.white,
@@ -193,6 +214,18 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
       },
     );
   }
+  void _resetForm() {
+    setState(() {
+      _kmController.clear();
+      _remarksController.clear();
+      _costController.clear();
+      _selectedType = null;
+      _image = null;
+      _isFuelOrOthersSelected = false;
+    });
+  }
+
+
 
   Widget _buildImageContainer() {
     return Container(

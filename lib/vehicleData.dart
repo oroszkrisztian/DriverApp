@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'globals.dart';
+import 'models/no_internet_widget.dart';
 
 class VehicleEntry {
   final int id;
@@ -60,12 +62,32 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
   DateTime? _startDate;
   DateTime? _endDate;
   bool _isLoading = false;
+  bool _hasInternet = true;
   final String baseUrl = 'https://vinczefi.com';
 
   @override
   void initState() {
     super.initState();
-    _fetchVehicleData();
+    _initializeData();
+  }
+
+  Future<bool> _checkInternet() async {
+    try {
+      final result = await InternetAddress.lookup('example.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _initializeData() async {
+    bool hasInternet = await _checkInternet();
+    setState(() {
+      _hasInternet = hasInternet;
+    });
+    if (hasInternet) {
+      await _fetchVehicleData();
+    }
   }
 
   Future<void> _fetchVehicleData() async {
@@ -300,7 +322,13 @@ class _VehicleDataPageState extends State<VehicleDataPage> {
         backgroundColor: const Color.fromARGB(255, 101, 204, 82),
         elevation: 0,
       ),
-      body: Container(
+      body:
+      !_hasInternet
+          ? NoInternetWidget(
+        onRetry: () => _initializeData(),
+      ):
+
+      Container(
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(

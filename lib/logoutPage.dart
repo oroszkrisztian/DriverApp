@@ -3,6 +3,7 @@ import 'package:app/services/car_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -40,6 +41,11 @@ class _LogoutPageState extends State<LogoutPage> {
   final _kmController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
   final CarServices _carServices = CarServices();
+  String? _kmInputLogin;
+
+  MyAppState? getAppState() {
+    return context.findAncestorStateOfType<MyAppState>();
+  }
 
   File? _image6;
   File? _image7;
@@ -51,25 +57,40 @@ class _LogoutPageState extends State<LogoutPage> {
   VehicleData? _selectedCar;
   bool _isLoading = false;
   String? _errorMessage;
-  int? _lastKm;
+  String? _lastKm;
   int? carId;
 
   @override
   void initState() {
     super.initState();
+    _getLastKm();
     // Just get the stored vehicle data
     if (Globals.vehicleID != null) {
       _selectedCar = carServices.getVehicleData(Globals.vehicleID!);
-      //_lastKm = _selectedCar?.km; // Set last KM from stored data
+      // Set last KM from stored data
+      _getLastKm();
       carId = Globals.vehicleID;
       print("LogoutPage car id: ${carId}");
     }
   }
 
+  Future<void> _getLastKm()async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedKm = prefs.getString('savedKm'); // Retrieve the KM value.
+    setState(() {
+      _kmInputLogin = savedKm; // Update the state to display the KM value.
+    });
+  }
+
   Future<void> _getImage(int imageNumber) async {
+    // Get reference to the app state before starting camera operation
+    final appState = getAppState();
+
+    // Set the camera flag to true before starting
+    appState?.setCameraState(true);
+
     try {
-      final pickedFile =
-          await _imagePicker.pickImage(source: ImageSource.camera);
+      final pickedFile = await _imagePicker.pickImage(source: ImageSource.camera);
 
       if (pickedFile != null) {
         setState(() {
@@ -98,6 +119,11 @@ class _LogoutPageState extends State<LogoutPage> {
       }
     } catch (e) {
       print('Error picking image: $e');
+    } finally {
+      // Always reset the camera flag when done, even if there was an error
+      // Add a small delay to ensure we don't show the dialog immediately after camera closes
+      await Future.delayed(const Duration(milliseconds: 500));
+      appState?.setCameraState(false);
     }
   }
 
@@ -223,16 +249,28 @@ class _LogoutPageState extends State<LogoutPage> {
   }
 
   Future<void> _submitData() async {
-    // Initial validation
+    // Initial validation for KM
     if (_kmController.text.isEmpty) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
           return AlertDialog(
-            title: const Text('Error'),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: const Text(
+              'Error',
+              style: TextStyle(
+                color: Color.fromARGB(255, 101, 204, 82),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             content: const Text('Please enter the KM.'),
             actions: <Widget>[
               TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                ),
                 onPressed: () {
                   Navigator.of(context).pop();
                 },
@@ -245,122 +283,268 @@ class _LogoutPageState extends State<LogoutPage> {
       return;
     }
 
-    int lastKM = 0; // default value in case of error
-
-    if (Globals.kmValue != null) {
-      try {
-        lastKM = int.parse(Globals
-            .kmValue!); // The '!' operator asserts that kmValue is not null
-      } catch (e) {
-        print("Invalid number format: ${Globals.kmValue}");
-      }
-    } else {
-      print("kmValue is null");
-    }
-
-    // Check for required images
-    if (_image6 == null ||
-        _image7 == null ||
-        _image8 == null ||
-        _image9 == null ||
-        _image10 == null ||
-        parcursOut == null) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Error'),
-            content: const Text('Please take all required pictures.'),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-      return;
-    }
-
+    // Safely get and validate the last KM value
+    int lastKm = 0;
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? lastKmValue = prefs.getString('lastKmValue');
+      if (lastKmValue != null) {
+        lastKm = int.parse(lastKmValue);
+      }
 
-      // Store images in Globals
-      Globals.image6 = _image6;
-      Globals.image7 = _image7;
-      Globals.image8 = _image8;
-      Globals.image9 = _image9;
-      Globals.image10 = _image10;
-      Globals.parcursOut = parcursOut;
-      Globals.kmValue = _kmController.text;
+      if (int.tryParse(_kmController.text) != null) {
+        int userInputKm = int.parse(_kmController.text);
+        if (userInputKm < lastKm) {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                title: const Text(
+                  'Error',
+                  style: TextStyle(
+                    color: Color.fromARGB(255, 101, 204, 82),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                content: Text('The entered KM must be greater than or equal to the last logged KM.\nLast km: $lastKm'),
+                actions: <Widget>[
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                    ),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('OK'),
+                  ),
+                ],
+              );
+            },
+          );
+          return;
+        }
+      }
 
-      final String logoutDate = DateTime.now().toIso8601String();
-
-      // Prepare logout images data
-      Map<String, dynamic> logoutImages = {
-        'userId': Globals.userId.toString(),
-        'vehicleID': Globals.vehicleID.toString(),
-        'km': _kmController.text,
-        'image1': _image6!.path,
-        'image2': _image7!.path,
-        'image3': _image8!.path,
-        'image4': _image9!.path,
-        'image5': _image10!.path,
-        'image6': parcursOut!.path,
-        'type': 'logout',
-        'timestamp': logoutDate
-      };
-
-      // Save pending images
-      //await prefs.setString(jsonEncode(logoutImages));
-
-      _showLoggingOutDialog();
-
-      try {
-        // Perform vehicle logout
-        await logoutVehicle(logoutDate);
-
-        // Schedule image upload task
-        // await Workmanager().registerOneOffTask(
-        //     "imageUpload_logout_${DateTime.now().millisecondsSinceEpoch}",
-        //     uploadImageTask,
-        //     inputData: logoutImages,
-        //     constraints: Constraints(
-        //       networkType: NetworkType.connected,
-        //       requiresBatteryNotLow: true,
-        //     ),
-        //     existingWorkPolicy: ExistingWorkPolicy.append,
-        //     backoffPolicy: BackoffPolicy.linear,
-        //     backoffPolicyDelay: const Duration(seconds: 30));
-
-        _hideLoggingOutDialog();
-
-        // Clear stored data
-        await prefs.remove('vehicleId');
-        Globals.vehicleID = null;
-
-        // Only navigate if logout was successful
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const DriverPage()),
-        );
-      } catch (e) {
-        print('Error during logout process: $e');
-        _hideLoggingOutDialog();
-
-        // Show error to user
+      // Check for required images
+      if (_image6 == null ||
+          _image7 == null ||
+          _image8 == null ||
+          _image9 == null ||
+          _image10 == null ||
+          parcursOut == null) {
         showDialog(
           context: context,
           builder: (BuildContext context) {
             return AlertDialog(
-              title: const Text('Error'),
-              content:
-                  const Text('Failed to complete logout. Please try again.'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Text(
+                'Error',
+                style: TextStyle(
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: const Text('Please take all required pictures.'),
               actions: <Widget>[
                 TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
+        );
+        return;
+      }
+
+      try {
+        // Store images in Globals
+        Globals.image6 = _image6;
+        Globals.image7 = _image7;
+        Globals.image8 = _image8;
+        Globals.image9 = _image9;
+        Globals.image10 = _image10;
+        Globals.parcursOut = parcursOut;
+        Globals.kmValue = _kmController.text;
+
+        // Get current timestamp
+        String logoutDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+        _showLoggingOutDialog();
+
+        try {
+          // Store images in Globals
+          Globals.image6 = _image6;
+          Globals.image7 = _image7;
+          Globals.image8 = _image8;
+          Globals.image9 = _image9;
+          Globals.image10 = _image10;
+          Globals.parcursOut = parcursOut;
+          Globals.kmValue = _kmController.text;
+
+          String logoutDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+          _showLoggingOutDialog();
+
+          try {
+            bool success = await logoutVehicle(logoutDate);
+
+            // Always hide the loading dialog first
+            _hideLoggingOutDialog();
+
+            if (success) {
+              // Clear all globals
+              Globals.vehicleID = null;
+              Globals.kmValue = null;
+              Globals.image6 = null;
+              Globals.image7 = null;
+              Globals.image8 = null;
+              Globals.image9 = null;
+              Globals.image10 = null;
+              Globals.parcursOut = null;
+
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const DriverPage()),
+                );
+              }
+            } else {
+              throw Exception('Logout operation failed');
+            }
+          } catch (e) {
+            print('Error during logout process: $e');
+            if (mounted) {
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return AlertDialog(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    title: const Text(
+                      'Error',
+                      style: TextStyle(
+                        color: Color.fromARGB(255, 101, 204, 82),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    content: const Text('Failed to complete logout. Please try again.'),
+                    actions: <Widget>[
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('OK'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            }
+          }
+        } catch (e) {
+          print('Error during logout process: $e');
+          if (mounted) {
+            _hideLoggingOutDialog();
+
+            showDialog(
+              context: context,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  title: const Text(
+                    'Error',
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 101, 204, 82),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  content: const Text('Failed to complete logout. Please try again.'),
+                  actions: <Widget>[
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
+        }
+      } catch (e) {
+        print('Error in logout submit data: $e');
+        _hideLoggingOutDialog();
+
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                title: const Text(
+                  'Error',
+                  style: TextStyle(
+                    color: Color.fromARGB(255, 101, 204, 82),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                content: const Text('An error occurred while logging out. Please try again.'),
+                actions: <Widget>[
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              );
+            },
+          );
+        }
+      }
+    } catch (e) {
+      print('Error validating KM: $e');
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Text(
+                'Error',
+                style: TextStyle(
+                  color: Color.fromARGB(255, 101, 204, 82),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: const Text('Invalid KM value. Please try again.'),
+              actions: <Widget>[
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Color.fromARGB(255, 101, 204, 82),
+                  ),
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('OK'),
                 ),
@@ -369,27 +553,6 @@ class _LogoutPageState extends State<LogoutPage> {
           },
         );
       }
-    } catch (e) {
-      print('Error in logout submit data: $e');
-      _hideLoggingOutDialog();
-
-      // Show error to user
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Error'),
-            content: const Text(
-                'An error occurred while logging out. Please try again.'),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
     }
   }
 
@@ -541,7 +704,7 @@ class _LogoutPageState extends State<LogoutPage> {
                             labelStyle: const TextStyle(color: Colors.black87),
                             // Use the stored vehicle data from carServices
                             hintText: Globals.vehicleID != null
-                                ? 'Last KM: $lastKM'
+                                ? 'Last KM: $_kmInputLogin'
                                 : 'Enter KM',
                             hintStyle: TextStyle(
                               color: Colors.grey[600],

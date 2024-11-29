@@ -5,6 +5,7 @@ import 'package:app/services/car_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'driverPage.dart'; // Import DriverPage
@@ -40,6 +41,10 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _kmController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
+  String? kmInputLogin;
+  MyAppState? getAppState() {
+    return context.findAncestorStateOfType<MyAppState>();
+  }
 
   final CarServices _carServices = CarServices();
   VehicleData? _selectedCar; // Add this to store cars locally
@@ -54,7 +59,7 @@ class _LoginPageState extends State<LoginPage> {
   int? _selectedCarId;
   bool _isLoading = false;
   String? _errorMessage;
-  int? _lastKm;
+  static int? _lastKmLogin;
 
   @override
   void initState() {
@@ -62,14 +67,19 @@ class _LoginPageState extends State<LoginPage> {
     // Just get the stored vehicle data if already logged in
     if (Globals.vehicleID != null) {
       _selectedCar = _carServices.getVehicleData(Globals.vehicleID!);
-      _lastKm = _selectedCar?.km;
+      _lastKmLogin = _selectedCar?.km;
     }
   }
-
+  
   Future<void> _getImage(int imageNumber) async {
+    // Get reference to the app state before starting camera operation
+    final appState = getAppState();
+
+    // Set the camera flag to true before starting
+    appState?.setCameraState(true);
+
     try {
-      final pickedFile =
-          await _imagePicker.pickImage(source: ImageSource.camera);
+      final pickedFile = await _imagePicker.pickImage(source: ImageSource.camera);
 
       if (pickedFile != null) {
         setState(() {
@@ -98,6 +108,11 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       print('Error picking image: $e');
+    } finally {
+      // Always reset the camera flag when done, even if there was an error
+      // Add a small delay to ensure we don't show the dialog immediately after camera closes
+      await Future.delayed(const Duration(milliseconds: 500));
+      appState?.setCameraState(false);
     }
   }
 
@@ -200,7 +215,7 @@ class _LoginPageState extends State<LoginPage> {
         VehicleData? selectedVehicleData =
             _carServices.getVehicleData(newValue);
         if (selectedVehicleData != null) {
-          _lastKm = selectedVehicleData.km;
+          _lastKmLogin = selectedVehicleData.km;
         }
       }
     });
@@ -238,6 +253,8 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _submitData() async {
     // Initial validation checks
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString('savedKm', _kmController.text); // Save the KM value with the key 'savedKm'.
     if (_selectedCarId == null || _kmController.text.isEmpty) {
       showDialog(
         context: context,
@@ -299,7 +316,13 @@ class _LoginPageState extends State<LoginPage> {
       Globals.vehicleID = _selectedCarId;
       Globals.kmValue = _kmController.text;
 
-      final String loginDate = DateTime.now().toIso8601String();
+      // Current DateTime
+      DateTime now = DateTime.now();
+
+      // Format as "YYYY-MM-DD HH:MM:SS"
+      String formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
+
+      final String loginDate = formattedDate;
 
       // Prepare login images data
       Map<String, dynamic> loginImages = {
@@ -322,17 +345,17 @@ class _LoginPageState extends State<LoginPage> {
       //await prefs.setString(pendingImagesKey, jsonEncode(loginImages));
 
       // KM validation
-      _lastKm ??= 0;
+      _lastKmLogin ??= 0;
       if (int.tryParse(_kmController.text) != null) {
         int userInputKm = int.parse(_kmController.text);
-        if (userInputKm < _lastKm!) {
+        if (userInputKm < _lastKmLogin!) {
           showDialog(
             context: context,
             builder: (BuildContext context) {
               return AlertDialog(
                 title: const Text('Error'),
                 content: Text(
-                    'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKm'),
+                    'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKmLogin'),
                 actions: <Widget>[
                   TextButton(
                     onPressed: () {
@@ -349,7 +372,7 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       _showLoggingDialog();
-
+      print("submitDataLogin time: $loginDate");
       // Perform vehicle login
       await loginVehicle(loginDate);
 
