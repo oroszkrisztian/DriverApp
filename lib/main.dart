@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:app/services/car_services.dart';
@@ -12,6 +13,8 @@ import 'globals.dart'; // Import your globals.dart file
 import 'driverPage.dart'; // Import DriverPage
 // Import LoginPage
 import 'package:workmanager/workmanager.dart';
+
+import 'models/no_internet_widget.dart';
 
 
 
@@ -42,8 +45,10 @@ void callbackDispatcher() {
 Future<bool> handleVehicleOperation(Map<String, dynamic>? inputData, {required bool isLogin}) async {
   if (inputData == null) {
     print("No input data for vehicle operation");
-    return true;
+    return false;
   }
+
+  SharedPreferences prefs = await SharedPreferences.getInstance();
 
   try {
     String timestamp = inputData['timestamp'] ?? '';
@@ -66,7 +71,103 @@ Future<bool> handleVehicleOperation(Map<String, dynamic>? inputData, {required b
     print("KM: ${request.fields['km']}");
     print("Date: ${request.fields['current-date-time']}");
 
-    bool hasPhotos = false;
+    bool hasPhotos = await _addPhotosToRequest(request, inputData, isLogin);
+    if (!hasPhotos) {
+      print("No photos found for upload");
+      return false;
+    }
+
+    print("Sending request with photos...");
+
+    try {
+      var response = await request.send().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Upload request timed out after 30 seconds');
+        },
+      );
+
+      var responseData = await response.stream.bytesToString();
+      print("Operation response: $responseData");
+
+      List<String> responses = responseData.split('}{');
+      if (responses.length > 1) {
+        responses[0] = responses[0] + '}';
+        responses[1] = '{' + responses[1];
+      }
+
+      var operationResult = json.decode(responses[0]);
+      bool operationSuccess = operationResult['success'] == true;
+
+      bool photoSuccess = true;
+      if (responses.length > 1) {
+        var photoResult = json.decode(responses[1]);
+        photoSuccess = photoResult['success'] == true;
+      }
+
+      if (operationSuccess && photoSuccess) {
+        return true;
+      } else {
+        // If server reports failure, save operation and return false
+        await _storeForLaterUpload(prefs, inputData);
+        return false;
+      }
+
+    } catch (e) {
+      print('Request failed: $e');
+      // Important: Save the operation before propagating the error
+      await _storeForLaterUpload(prefs, inputData);
+      throw e;
+    }
+  } catch (e) {
+    print('Operation failed: $e');
+    // Ensure operation is saved even for unexpected errors
+    await _storeForLaterUpload(prefs, inputData);
+    throw e;
+  }
+}
+
+// Helper function to store operations
+Future<void> _storeForLaterUpload(SharedPreferences prefs, Map<String, dynamic> inputData) async {
+  try {
+    List<Map<String, dynamic>> pendingOperations = [];
+    String? existingOperations = prefs.getString('pendingOperations');
+
+    if (existingOperations != null) {
+      pendingOperations = List<Map<String, dynamic>>.from(jsonDecode(existingOperations));
+    }
+
+    // Check for duplicates before adding
+    bool isDuplicate = pendingOperations.any((op) =>
+    op['timestamp'] == inputData['timestamp'] &&
+        op['driver'] == inputData['driver'] &&
+        op['vehicle'] == inputData['vehicle'] &&
+        op['km'] == inputData['km']
+    );
+
+    if (!isDuplicate) {
+      pendingOperations.add(inputData);
+      await prefs.setString('pendingOperations', jsonEncode(pendingOperations));
+      print('Operation saved for later upload');
+    } else {
+      print('Operation already exists in pending list');
+    }
+  } catch (e) {
+    print('Error saving operation for later: $e');
+    // We throw this error because failing to save a pending operation is critical
+    throw Exception('Failed to save operation for later upload: $e');
+  }
+}
+
+
+// Add a helper function for adding photos to request
+Future<bool> _addPhotosToRequest(
+    http.MultipartRequest request,
+    Map<String, dynamic> inputData,
+    bool isLogin
+    ) async {
+  bool hasPhotos = false;
+  try {
     if (isLogin) {
       for (int i = 1; i <= 5; i++) {
         String? imagePath = inputData['image$i'];
@@ -92,48 +193,13 @@ Future<bool> handleVehicleOperation(Map<String, dynamic>? inputData, {required b
         hasPhotos = true;
       }
     }
-
-    if (!hasPhotos) {
-      print("No photos found for upload");
-      return true;
-    }
-
-    print("Sending request with photos...");
-    var response = await request.send();
-    var responseData = await response.stream.bytesToString();
-    print("Operation response: $responseData");
-
-    try {
-      // Handle the case where we get multiple JSON responses
-      List<String> responses = responseData.split('}{');
-      if (responses.length > 1) {
-        responses[0] = responses[0] + '}';
-        responses[1] = '{' + responses[1];
-      }
-
-      // Process first response (operation result)
-      var operationResult = json.decode(responses[0]);
-      bool operationSuccess = operationResult['success'] == true;
-
-      // Process second response (photo upload result) if it exists
-      bool photoSuccess = true;
-      if (responses.length > 1) {
-        var photoResult = json.decode(responses[1]);
-        photoSuccess = photoResult['success'] == true;
-      }
-
-      return operationSuccess && photoSuccess;
-    } catch (e) {
-      print('Error parsing operation response: $e');
-      // If we can't parse the response but we know the server returned success messages
-      // (based on the log output), we can still return true
-      return responseData.contains('"success":true');
-    }
   } catch (e) {
-    print('Error in vehicle operation: $e');
-    return false;
+    print('Error preparing photos: $e');
+    throw e;  // Propagate the error instead of handling it silently
   }
+  return hasPhotos;
 }
+
 
 Future<void> _cleanupOperation(SharedPreferences prefs, String timestamp, bool isLogin) async {
   if (!isLogin) {
@@ -144,400 +210,538 @@ Future<void> _cleanupOperation(SharedPreferences prefs, String timestamp, bool i
   }
 }
 
+class UploadOperation {
+  final Map<String, dynamic> data;
+  final String uniqueKey;
+  final bool isLogin;
+
+  UploadOperation({
+    required this.data,
+    required this.uniqueKey,
+    required this.isLogin,
+  });
+
+  factory UploadOperation.fromData(Map<String, dynamic> data) {
+    String uniqueKey = '${data['timestamp']}_${data['driver']}_${data['vehicle']}_${data['km']}';
+    bool isLogin = data.containsKey('parcursIn');
+    return UploadOperation(
+      data: data,
+      uniqueKey: uniqueKey,
+      isLogin: isLogin,
+    );
+  }
+}
+
+class ExpenseOperation {
+  final Map<String, dynamic> data;
+  final String uniqueKey;
+
+  ExpenseOperation({
+    required this.data,
+    required this.uniqueKey,
+  });
+
+  factory ExpenseOperation.fromData(Map<String, dynamic> data) {
+    String uniqueKey = '${data['timestamp']}_${data['driver']}_${data['type']}_${data['cost']}';
+    return ExpenseOperation(
+      data: data,
+      uniqueKey: uniqueKey,
+    );
+  }
+}
+
 Future<void> showUploadDialog(BuildContext context) async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
   String? pendingOperations = prefs.getString('pendingOperations');
   String? pendingExpenses = prefs.getString('pendingExpenses');
 
-  // Return if nothing to upload
   if (pendingOperations == null && pendingExpenses == null) return;
 
-  // Parse the pending data
-  List<Map<String, dynamic>> operations = [];
-  List<Map<String, dynamic>> expenses = [];
+  List<UploadOperation> operations = [];
+  Set<String> operationKeys = {};
 
   if (pendingOperations != null) {
-    operations = List<Map<String, dynamic>>.from(jsonDecode(pendingOperations));
+    List<Map<String, dynamic>> parsedOps = List<Map<String, dynamic>>.from(jsonDecode(pendingOperations));
+    // Sort operations by timestamp
+    parsedOps.sort((a, b) => DateTime.parse(a['timestamp']).compareTo(DateTime.parse(b['timestamp'])));
+
+    for (var op in parsedOps) {
+      var operation = UploadOperation.fromData(op);
+      if (!operationKeys.contains(operation.uniqueKey)) {
+        operationKeys.add(operation.uniqueKey);
+        operations.add(operation);
+      }
+    }
   }
+
+  List<ExpenseOperation> expenses = [];
+  Set<String> expenseKeys = {};
+
   if (pendingExpenses != null) {
-    expenses = List<Map<String, dynamic>>.from(jsonDecode(pendingExpenses));
+    List<Map<String, dynamic>> parsedExp = List<Map<String, dynamic>>.from(jsonDecode(pendingExpenses));
+    for (var exp in parsedExp) {
+      var expense = ExpenseOperation.fromData(exp);
+      if (!expenseKeys.contains(expense.uniqueKey)) {
+        expenseKeys.add(expense.uniqueKey);
+        expenses.add(expense);
+      }
+    }
   }
+
+  if (!context.mounted) return;
 
   return showDialog(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext context) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            backgroundColor: Colors.white,
-            elevation: 5,
-
-            title: const Text(
-              'Internet Connection Found',
-              style: TextStyle(
-                color: Color.fromARGB(255, 101, 204, 82),
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 5,
+        title: const Text(
+          'Internet Connection Found',
+          style: TextStyle(
+            color: Color.fromARGB(255, 101, 204, 82),
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
+        ),
+        content: _buildDialogContent(operations, expenses),
+        actions: [
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey[600],
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
-
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'There are pending items to upload:',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.black87,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 300),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Colors.grey.shade200,
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Vehicle Operations
-                        if (operations.isNotEmpty) ...[
-                          const Text(
-                            'Vehicle Operations',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Color.fromARGB(255, 101, 204, 82),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          ...operations.map((operation) {
-                            bool isLogin = operation.containsKey('parcursIn');
-                            String timestamp = operation['timestamp'] ?? '';
-                            DateTime? dateTime = DateTime.tryParse(timestamp);
-                            String formattedTime = dateTime != null
-                                ? '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}'
-                                : timestamp;
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    isLogin ? Icons.login : Icons.logout,
-                                    color: const Color.fromARGB(255, 101, 204, 82),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      '${isLogin ? "Login" : "Logout"}: $formattedTime',
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        ],
-
-                        // Expenses Section
-                        if (expenses.isNotEmpty) ...[
-                          if (operations.isNotEmpty) const SizedBox(height: 16),
-                          const Text(
-                            'Expenses',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Color.fromARGB(255, 101, 204, 82),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          ...expenses.map((expense) {
-                            String timestamp = expense['timestamp'] ?? '';
-                            DateTime? dateTime = DateTime.tryParse(timestamp);
-                            String formattedTime = dateTime != null
-                                ? '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}'
-                                : timestamp;
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.receipt_long,
-                                    color: Color.fromARGB(255, 101, 204, 82),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${expense['type']} - ${expense['cost']} EUR',
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                        Text(
-                                          formattedTime,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Would you like to upload these items now?',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.black87,
-                    height: 1.5,
-                  ),
-                ),
-              ],
+            child: const Text('Later', style: TextStyle(fontSize: 16)),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 2,
             ),
-
-            actions: <Widget>[
-              TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey[600],
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Later',
-                  style: TextStyle(fontSize: 16),
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(255, 101, 204, 82),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 2,
-                ),
-                child: const Text(
-                  'Upload Now',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                onPressed: () async {
-                  showDialog(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (BuildContext context) {
-                      return Dialog(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        elevation: 5,
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color.fromARGB(255, 101, 204, 82),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              const Text(
-                                'Uploading items...',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-
-                  try {
-                    // Create backups
-                    final String operationsBackup = jsonEncode(operations);
-                    final String expensesBackup = jsonEncode(expenses);
-
-                    // Track successful uploads
-                    List<Map<String, dynamic>> successfulOperations = [];
-                    List<Map<String, dynamic>> successfulExpenses = [];
-                    String errorMessage = '';
-
-                    // Upload vehicle operations
-                    if (operations.isNotEmpty) {
-                      for (var operation in operations) {
-                        try {
-                          bool isLogin = operation.containsKey('parcursIn');
-                          bool success = await handleVehicleOperation(operation, isLogin: isLogin);
-                          if (success) {
-                            successfulOperations.add(operation);
-                            // Clear vehicle data if this was a logout operation
-                            if (!isLogin) {
-                              await prefs.remove('vehicleId');
-                              await prefs.remove('lastKmValue');
-                              Globals.vehicleID = null;
-                              Globals.kmValue = null;
-                            }
-                          }
-                        } catch (e) {
-                          errorMessage += 'Vehicle operations error: $e\n';
-                          break;
-                        }
-                      }
-
-                      // Double check if we need to clear vehicle data
-                      if (operations.isNotEmpty) {
-                        var lastOperation = operations.last;
-                        bool wasLogout = !lastOperation.containsKey('parcursIn');
-                        if (wasLogout) {
-                          await prefs.remove('vehicleId');
-                          await prefs.remove('lastKmValue');
-                          Globals.vehicleID = null;
-                          Globals.kmValue = null;
-
-                          // Clear image globals
-                          Globals.image6 = null;
-                          Globals.image7 = null;
-                          Globals.image8 = null;
-                          Globals.image9 = null;
-                          Globals.image10 = null;
-                          Globals.parcursOut = null;
-                        }
-                      }
-                    }
-
-                    // Upload expenses
-                    if (expenses.isNotEmpty) {
-                      for (var expense in expenses) {
-                        try {
-                          bool success = await handleExpenseUpload(expense);
-                          if (success) {
-                            successfulExpenses.add(expense);
-                          }
-                        } catch (e) {
-                          errorMessage += 'Expenses error: $e\n';
-                          break;
-                        }
-                      }
-                    }
-
-                    // Handle remaining items if any uploads failed
-                    bool hasRemainingItems = false;
-                    if (successfulOperations.length < operations.length) {
-                      List<Map<String, dynamic>> remainingOperations =
-                      List<Map<String, dynamic>>.from(jsonDecode(operationsBackup));
-                      remainingOperations.removeWhere(
-                              (op) => successfulOperations.any((success) =>
-                          success['timestamp'] == op['timestamp']));
-                      if (remainingOperations.isNotEmpty) {
-                        await prefs.setString('pendingOperations', jsonEncode(remainingOperations));
-                        hasRemainingItems = true;
-                      }
-                    }
-
-                    if (successfulExpenses.length < expenses.length) {
-                      List<Map<String, dynamic>> remainingExpenses =
-                      List<Map<String, dynamic>>.from(jsonDecode(expensesBackup));
-                      remainingExpenses.removeWhere(
-                              (exp) => successfulExpenses.any((success) =>
-                          success['timestamp'] == exp['timestamp']));
-                      if (remainingExpenses.isNotEmpty) {
-                        await prefs.setString('pendingExpenses', jsonEncode(remainingExpenses));
-                        hasRemainingItems = true;
-                      }
-                    }
-
-                    // Clean up fully uploaded items
-                    if (successfulOperations.length == operations.length) {
-                      await prefs.remove('pendingOperations');
-                    }
-                    if (successfulExpenses.length == expenses.length) {
-                      await prefs.remove('pendingExpenses');
-                    }
-
-                    Navigator.of(context).pop(); // Close loading dialog
-                    Navigator.of(context).pop(); // Close main dialog
-
-                    if (hasRemainingItems) {
-                      Fluttertoast.showToast(
-                        msg: "Upload partially completed.\n" +
-                            "Operations: ${successfulOperations.length}/${operations.length}\n" +
-                            "Expenses: ${successfulExpenses.length}/${expenses.length}\n" +
-                            (errorMessage.isNotEmpty ? "Errors: $errorMessage" : ""),
-                        backgroundColor: Colors.orange,
-                        textColor: Colors.white,
-                        toastLength: Toast.LENGTH_LONG,
-                      );
-                    } else {
-                      Fluttertoast.showToast(
-                        msg: "All items uploaded successfully",
-                        backgroundColor: Colors.green,
-                        textColor: Colors.white,
-                      );
-                    }
-                  } catch (e) {
-                    Navigator.of(context).pop(); // Close loading dialog
-                    Navigator.of(context).pop(); // Close main dialog
-
-                    Fluttertoast.showToast(
-                      msg: "Error during upload: $e",
-                      backgroundColor: Colors.red,
-                      textColor: Colors.white,
-                    );
-                  }
-                },
-              ),
-            ],
-            actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          );
-        },
+            child: const Text(
+              'Upload Now',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            onPressed: () => _handleUpload(context, operations, expenses),
+          ),
+        ],
+        actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       );
     },
   );
 }
+
+// Builds the content of the dialog
+Widget _buildDialogContent(List<UploadOperation> operations, List<ExpenseOperation> expenses) {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'There are pending items to upload:',
+        style: TextStyle(fontSize: 16, color: Colors.black87, height: 1.5),
+      ),
+      const SizedBox(height: 16),
+      Container(
+        constraints: const BoxConstraints(maxHeight: 300),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade200, width: 1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (operations.isNotEmpty) ...[
+                _buildOperationsSection(operations),
+                if (expenses.isNotEmpty) const SizedBox(height: 16),
+              ],
+              if (expenses.isNotEmpty) _buildExpensesSection(expenses),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 16),
+      const Text(
+        'Would you like to upload these items now?',
+        style: TextStyle(fontSize: 16, color: Colors.black87, height: 1.5),
+      ),
+    ],
+  );
+}
+
+// Builds the operations section of the dialog
+Widget _buildOperationsSection(List<UploadOperation> operations) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Vehicle Operations',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Color.fromARGB(255, 101, 204, 82),
+        ),
+      ),
+      const SizedBox(height: 8),
+      ...operations.map((operation) {
+        DateTime? dateTime = DateTime.tryParse(operation.data['timestamp'] ?? '');
+        String formattedTime = dateTime != null
+            ? '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}'
+            : operation.data['timestamp'] ?? '';
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Icon(
+                operation.isLogin ? Icons.login : Icons.logout,
+                color: const Color.fromARGB(255, 101, 204, 82),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${operation.isLogin ? "Login" : "Logout"}: $formattedTime',
+                  style: const TextStyle(fontSize: 14, color: Colors.black87),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    ],
+  );
+}
+
+// Builds the expenses section of the dialog
+Widget _buildExpensesSection(List<ExpenseOperation> expenses) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Expenses',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Color.fromARGB(255, 101, 204, 82),
+        ),
+      ),
+      const SizedBox(height: 8),
+      ...expenses.map((expense) {
+        DateTime? dateTime = DateTime.tryParse(expense.data['timestamp'] ?? '');
+        String formattedTime = dateTime != null
+            ? '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}'
+            : expense.data['timestamp'] ?? '';
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.receipt_long,
+                color: Color.fromARGB(255, 101, 204, 82),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${expense.data['type']} - ${expense.data['cost']} EUR',
+                      style: const TextStyle(fontSize: 14, color: Colors.black87),
+                    ),
+                    Text(
+                      formattedTime,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    ],
+  );
+}
+
+// Handles the upload process
+Future<void> _handleUpload(
+    BuildContext context,
+    List<UploadOperation> operations,
+    List<ExpenseOperation> expenses,
+    ) async {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) => _buildLoadingDialog(),
+  );
+
+  try {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    int successfulOperations = 0;
+    Map<String, bool> vehicleLoginStatus = {};
+
+    // First, create a list of operations that we'll update as we process them
+    List<Map<String, dynamic>> remainingOperations =
+    operations.map((op) => Map<String, dynamic>.from(op.data)).toList();
+
+    // Process operations sequentially
+    for (int i = 0; i < operations.length; i++) {
+      var operation = operations[i];
+      String vehicleId = operation.data['vehicle'].toString();
+      bool isLogin = operation.isLogin;
+
+      // Validate operation sequence
+      if (isLogin && vehicleLoginStatus[vehicleId] == true) {
+        print('Vehicle $vehicleId already logged in, skipping duplicate login');
+        continue;
+      }
+      if (!isLogin && vehicleLoginStatus[vehicleId] != true) {
+        print('Vehicle $vehicleId not logged in, skipping invalid logout');
+        continue;
+      }
+
+      try {
+        print('Processing ${isLogin ? "LOGIN" : "LOGOUT"} for vehicle $vehicleId from ${operation.data['timestamp']}');
+
+        bool success = await handleVehicleOperation(
+            operation.data,
+            isLogin: isLogin
+        ).timeout(
+          const Duration(seconds: 45),
+          onTimeout: () {
+            print('Operation timed out');
+            throw TimeoutException('Operation timed out');
+          },
+        );
+
+        if (success) {
+          print('Operation processed successfully');
+          successfulOperations++;
+          vehicleLoginStatus[vehicleId] = isLogin;
+
+          // Remove this successful operation from remaining list
+          remainingOperations.removeAt(0);
+        } else {
+          print('Operation failed, stopping sequence');
+          break;
+        }
+      } catch (e) {
+        print('Error processing operation: $e');
+        break;
+      }
+    }
+
+    // Update SharedPreferences with truly remaining operations
+    if (remainingOperations.isNotEmpty) {
+      print('Saving ${remainingOperations.length} remaining operations');
+      await prefs.setString('pendingOperations', jsonEncode(remainingOperations));
+    } else {
+      print('No remaining operations, removing from SharedPreferences');
+      await prefs.remove('pendingOperations');
+    }
+
+    // Process expenses only if all operations succeeded or there were no operations
+    List<Map<String, dynamic>> remainingExpenses = [];
+    int successfulExpenses = 0;
+
+    if (successfulOperations == operations.length || operations.isEmpty) {
+      for (var expense in expenses) {
+        try {
+          bool success = await handleExpenseUpload(expense.data).timeout(
+            const Duration(seconds: 45),
+            onTimeout: () => throw TimeoutException('Expense upload timed out'),
+          );
+
+          if (success) {
+            successfulExpenses++;
+          } else {
+            remainingExpenses.add(expense.data);
+          }
+        } catch (e) {
+          print('Error processing expense: $e');
+          remainingExpenses.add(expense.data);
+        }
+      }
+
+      if (remainingExpenses.isNotEmpty) {
+        await prefs.setString('pendingExpenses', jsonEncode(remainingExpenses));
+      } else {
+        await prefs.remove('pendingExpenses');
+      }
+    }
+
+    // Close dialogs
+    if (context.mounted) {
+      Navigator.of(context).pop();  // Close loading dialog
+      Navigator.of(context).pop();  // Close upload dialog
+    }
+
+    bool hasRemainingItems = remainingOperations.isNotEmpty || remainingExpenses.isNotEmpty;
+
+    print('Upload summary:');
+    print('- Successful operations: $successfulOperations/${operations.length}');
+    print('- Remaining operations: ${remainingOperations.length}');
+    print('- Successful expenses: $successfulExpenses/${expenses.length}');
+    print('- Remaining expenses: ${remainingExpenses.length}');
+
+    _showUploadResult(
+      hasRemainingItems: hasRemainingItems,
+      totalOperations: operations.length,
+      totalExpenses: expenses.length,
+      successfulOperations: successfulOperations,
+      successfulExpenses: successfulExpenses,
+      errorMessage: hasRemainingItems ? 'Some items could not be uploaded' : '',
+    );
+
+  } catch (e) {
+    print('Unexpected error during upload process: $e');
+    if (context.mounted) {
+      Navigator.of(context).pop();
+      Navigator.of(context).pop();
+    }
+
+    Fluttertoast.showToast(
+      msg: "Error during upload: $e",
+      backgroundColor: Colors.red,
+      textColor: Colors.white,
+    );
+  }
+}
+
+
+void _showUploadResult({
+  required bool hasRemainingItems,
+  required int totalOperations,
+  required int totalExpenses,
+  required int successfulOperations,
+  required int successfulExpenses,
+  required String errorMessage,
+}) {
+  if (hasRemainingItems) {
+    // Build a detailed message for partial completion
+    String message = "Upload partially completed.\n";
+
+    // Add operations status if there were any operations
+    if (totalOperations > 0) {
+      message += "Operations: $successfulOperations/$totalOperations\n";
+    }
+
+    // Add expenses status if there were any expenses
+    if (totalExpenses > 0) {
+      message += "Expenses: $successfulExpenses/$totalExpenses\n";
+    }
+
+    // Add error message if there were any errors
+    if (errorMessage.isNotEmpty) {
+      // Truncate error message if it's too long to prevent toast overflow
+      if (errorMessage.length > 100) {
+        message += "Errors: ${errorMessage.substring(0, 97)}...";
+      } else {
+        message += "Errors: $errorMessage";
+      }
+    }
+
+    Fluttertoast.showToast(
+      msg: message,
+      backgroundColor: Colors.orange,
+      textColor: Colors.white,
+      toastLength: Toast.LENGTH_LONG,
+      gravity: ToastGravity.CENTER,
+      timeInSecForIosWeb: 4,
+    );
+  } else if (successfulOperations == 0 && successfulExpenses == 0) {
+    // Case where nothing was uploaded successfully
+    Fluttertoast.showToast(
+      msg: "No items were uploaded. Please try again when connection is stable.",
+      backgroundColor: Colors.red,
+      textColor: Colors.white,
+      toastLength: Toast.LENGTH_LONG,
+      gravity: ToastGravity.CENTER,
+      timeInSecForIosWeb: 3,
+    );
+  } else {
+    // Case where everything was uploaded successfully
+    String message = "All items uploaded successfully";
+
+    // Add count details if there were multiple items
+    if ((totalOperations + totalExpenses) > 1) {
+      message += "\nOperations: $successfulOperations, Expenses: $successfulExpenses";
+    }
+
+    Fluttertoast.showToast(
+      msg: message,
+      backgroundColor: Colors.green,
+      textColor: Colors.white,
+      toastLength: Toast.LENGTH_LONG,
+      gravity: ToastGravity.CENTER,
+      timeInSecForIosWeb: 2,
+    );
+  }
+}
+
+// Builds the loading dialog
+Widget _buildLoadingDialog() {
+  return Dialog(
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    elevation: 5,
+    child: const Padding(
+      padding: EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(
+              Color.fromARGB(255, 101, 204, 82),
+            ),
+          ),
+          SizedBox(height: 20),
+          Text(
+            'Uploading items...',
+            style: TextStyle(fontSize: 16, color: Colors.black87),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// Clears vehicle-related data
+Future<void> _clearVehicleData(SharedPreferences prefs) async {
+  await prefs.remove('vehicleId');
+  await prefs.remove('lastKmValue');
+  //await prefs.remove('isLoggedIn');
+
+  // Clear globals
+  Globals.vehicleID = null;
+  Globals.kmValue = null;
+
+  // Clear image globals
+  Globals.image6 = null;
+  Globals.image7 = null;
+  Globals.image8 = null;
+  Globals.image9 = null;
+  Globals.image10 = null;
+  Globals.parcursOut = null;
+}
+
 
 Future<void> checkConnectivityAndShowDialog(BuildContext context) async {
   var connectivityResult = await Connectivity().checkConnectivity();
@@ -608,13 +812,14 @@ Future<bool> loginVehicle(String loginDate) async {
     textColor: Colors.white,
   );
 
-  return true;
+  return false;
 }
 
 Future<bool> logoutVehicle(String logoutDate) async {
   var connectivityResult = await Connectivity().checkConnectivity();
   SharedPreferences prefs = await SharedPreferences.getInstance();
 
+  // Prepare logout operation data
   Map<String, dynamic> operationData = {
     'driver': Globals.userId.toString(),
     'vehicle': Globals.vehicleID.toString(),
@@ -622,7 +827,7 @@ Future<bool> logoutVehicle(String logoutDate) async {
     'timestamp': logoutDate,
   };
 
-  // Add photos to operation data
+  // Add logout photos
   if (Globals.image6?.path != null) operationData['image6'] = Globals.image6!.path;
   if (Globals.image7?.path != null) operationData['image7'] = Globals.image7!.path;
   if (Globals.image8?.path != null) operationData['image8'] = Globals.image8!.path;
@@ -630,62 +835,205 @@ Future<bool> logoutVehicle(String logoutDate) async {
   if (Globals.image10?.path != null) operationData['image10'] = Globals.image10!.path;
   if (Globals.parcursOut?.path != null) operationData['parcursOut'] = Globals.parcursOut!.path;
 
+  // If we have internet connectivity
   if (connectivityResult != ConnectivityResult.none) {
-    // Attempt immediate upload of both logout and any pending expenses
     try {
-      // First handle logout
-      bool logoutSuccess = await handleVehicleOperation(operationData, isLogin: false);
+      // Get both pending operations and expenses
+      String? pendingOperationsJson = prefs.getString('pendingOperations');
+      String? pendingExpensesJson = prefs.getString('pendingExpenses');
 
-      // Then check and handle any pending expenses
-      String? pendingExpenses = prefs.getString('pendingExpenses');
-      if (pendingExpenses != null) {
-        List<Map<String, dynamic>> expenses = List<Map<String, dynamic>>.from(jsonDecode(pendingExpenses));
-        for (var expense in expenses) {
-          await handleExpenseUpload(expense);
-        }
-        await prefs.remove('pendingExpenses');
+      List<Map<String, dynamic>> pendingOperations = [];
+      List<Map<String, dynamic>> pendingExpenses = [];
+
+      if (pendingOperationsJson != null) {
+        pendingOperations = List<Map<String, dynamic>>.from(json.decode(pendingOperationsJson));
+      }
+      if (pendingExpensesJson != null) {
+        pendingExpenses = List<Map<String, dynamic>>.from(json.decode(pendingExpensesJson));
       }
 
-      if (logoutSuccess) {
-        // Clear storage
-        await prefs.remove('vehicleId');
-        await prefs.remove('lastKmValue');
+      // Process all pending operations first
+      print('Starting to process ${pendingOperations.length} pending operations');
+      for (var operation in pendingOperations) {
+        try {
+          bool isLogin = operation.containsKey('parcursIn');
+          print('Processing ${isLogin ? "login" : "logout"} from ${operation['timestamp']}');
 
-        Fluttertoast.showToast(
-          msg: "Logout successful",
-          backgroundColor: Colors.green,
-          textColor: Colors.white,
-        );
+          bool success = await handleVehicleOperation(operation, isLogin: isLogin);
+          if (!success) {
+            print('Operation failed, rolling back');
+            await _performFullRollback(prefs, pendingOperations, pendingExpenses, operationData);
+            return true;
+          }
+        } catch (e) {
+          print('Error processing operation: $e');
+          await _performFullRollback(prefs, pendingOperations, pendingExpenses, operationData);
+
+          Fluttertoast.showToast(
+              msg: "Connection issue. Operations saved for later.",
+              backgroundColor: Colors.orange,
+              textColor: Colors.white
+          );
+          return false;
+        }
+      }
+
+      // Process all pending expenses
+      print('Starting to process ${pendingExpenses.length} pending expenses');
+      for (var expense in pendingExpenses) {
+        try {
+          print('Processing expense from ${expense['timestamp']}');
+          bool success = await handleExpenseUpload(expense);
+          if (!success) {
+            print('Expense upload failed, rolling back');
+            await _performFullRollback(prefs, pendingOperations, pendingExpenses, operationData);
+            return true;
+          }
+        } catch (e) {
+          print('Error processing expense: $e');
+          await _performFullRollback(prefs, pendingOperations, pendingExpenses, operationData);
+
+          Fluttertoast.showToast(
+              msg: "Connection issue. Operations saved for later.",
+              backgroundColor: Colors.orange,
+              textColor: Colors.white
+          );
+          return true;
+        }
+      }
+
+      // If all pending items processed successfully, perform current logout
+      try {
+        print('Processing current logout');
+        bool logoutSuccess = await handleVehicleOperation(operationData, isLogin: false);
+
+        if (logoutSuccess) {
+          // Clear all stored data after successful operations
+          await prefs.remove('pendingOperations');
+          await prefs.remove('pendingExpenses');
+          await prefs.remove('vehicleId');
+          await prefs.remove('lastKmValue');
+          //await prefs.remove('isLoggedIn');
+
+          // Clear globals
+          Globals.vehicleID = null;
+          Globals.kmValue = null;
+
+          Fluttertoast.showToast(
+              msg: "All operations completed successfully",
+              backgroundColor: Colors.green,
+              textColor: Colors.white
+          );
+
+          return true;
+        } else {
+          await _performFullRollback(prefs, pendingOperations, pendingExpenses, operationData);
+          Globals.vehicleID = null;
+          Globals.kmValue = null;
+          return true;
+        }
+      } catch (e) {
+        print('Error during final logout: $e');
+        Globals.vehicleID = null;
+        Globals.kmValue = null;
+        await _performFullRollback(prefs, pendingOperations, pendingExpenses, operationData);
         return true;
       }
     } catch (e) {
-      print('Error during online logout: $e');
-      // If online upload fails, fall through to offline storage
+      print('General error during processing: $e');
+      Globals.vehicleID = null;
+      Globals.kmValue = null;
+      await _storeOperationForLater(prefs, operationData);
+      return true;
     }
-  }
+  } else {
+    // Offline case - save logout operation
+    print('Device offline, saving logout operation');
+    await _storeOperationForLater(prefs, operationData);
+    Globals.vehicleID = null;
+    Globals.kmValue = null;
 
-  // Store for later upload if online upload failed or offline
-  List<Map<String, dynamic>> pendingOperations = [];
-  String? existingOperations = prefs.getString('pendingOperations');
-  if (existingOperations != null) {
-    pendingOperations = List<Map<String, dynamic>>.from(jsonDecode(existingOperations));
-  }
-  pendingOperations.add(operationData);
-  await prefs.setString('pendingOperations', jsonEncode(pendingOperations));
+    Fluttertoast.showToast(
+        msg: "Device offline, logout saved for later upload",
+        backgroundColor: Colors.orange,
+        textColor: Colors.white
+    );
 
-  Fluttertoast.showToast(
-    msg: "Logout saved for later upload",
-    backgroundColor: Colors.orange,
-    textColor: Colors.white,
+    return true;
+  }
+}
+
+// Helper function for full rollback of both operations and expenses
+Future<void> _performFullRollback(
+    SharedPreferences prefs,
+    List<Map<String, dynamic>> pendingOperations,
+    List<Map<String, dynamic>> pendingExpenses,
+    Map<String, dynamic> currentLogout
+    ) async {
+  // Handle operations rollback
+  List<Map<String, dynamic>> allOperations = List.from(pendingOperations);
+
+  // Check for duplicate before adding current logout
+  bool logoutExists = allOperations.any((operation) =>
+  operation['timestamp'] == currentLogout['timestamp'] &&
+      operation['driver'] == currentLogout['driver'] &&
+      operation['vehicle'] == currentLogout['vehicle']
   );
 
-  return true;
+  if (!logoutExists) {
+    allOperations.add(currentLogout);
+  }
+
+  // Important: Clear vehicle login state even during rollback
+  // This ensures the user is properly logged out even if operations are pending
+  await prefs.remove('vehicleId');
+  await prefs.remove('lastKmValue');
+  //await prefs.setBool('isLoggedIn', false);
+
+  // Clear global state
+  Globals.vehicleID = null;
+  Globals.kmValue = null;
+
+  // Save pending operations and expenses
+  await prefs.setString('pendingOperations', json.encode(allOperations));
+  if (pendingExpenses.isNotEmpty) {
+    await prefs.setString('pendingExpenses', json.encode(pendingExpenses));
+  }
+
+  print('Full rollback completed with vehicle state cleared:');
+  print('- Operations: ${allOperations.length}');
+  print('- Expenses: ${pendingExpenses.length}');
+}
+
+// Helper function to store a single operation
+Future<void> _storeOperationForLater(
+    SharedPreferences prefs,
+    Map<String, dynamic> operationData
+    ) async {
+  List<Map<String, dynamic>> pendingOperations = [];
+  String? existingOperations = prefs.getString('pendingOperations');
+
+  if (existingOperations != null) {
+    pendingOperations = List<Map<String, dynamic>>.from(json.decode(existingOperations));
+  }
+
+  // Check for duplicate before adding
+  bool exists = pendingOperations.any((operation) =>
+  operation['timestamp'] == operationData['timestamp'] &&
+      operation['driver'] == operationData['driver'] &&
+      operation['vehicle'] == operationData['vehicle']
+  );
+
+  if (!exists) {
+    pendingOperations.add(operationData);
+    await prefs.setString('pendingOperations', json.encode(pendingOperations));
+  }
 }
 
 Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
   if (inputData == null) {
     print("No input data for expense upload");
-    return true;
+    return false;  // Changed to false since this is a failure case
   }
 
   try {
@@ -694,6 +1042,7 @@ Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
       Uri.parse('https://vinczefi.com/greenfleet/flutter_functions_1.php'),
     );
 
+    // Set up request fields...
     request.fields['action'] = 'vehicle-expense';
     request.fields['driver'] = inputData['driver'] ?? '';
     request.fields['vehicle'] = inputData['vehicle'] ?? '';
@@ -701,6 +1050,7 @@ Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
     request.fields['type'] = inputData['type'] ?? '';
     request.fields['remarks'] = inputData['remarks'] ?? '';
     request.fields['cost'] = inputData['cost'] ?? '';
+    request.fields['current-date-time'] = inputData['timestamp'] ?? '';
 
     // Add expense photo if exists
     String? imagePath = inputData['image'];
@@ -712,7 +1062,14 @@ Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
     }
 
     print("Sending expense request...");
-    var response = await request.send();
+    // Add timeout to the request
+    var response = await request.send().timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        throw TimeoutException('Connection timed out after 30 seconds');
+      },
+    );
+
     var responseData = await response.stream.bytesToString();
     print("Expense response: $responseData");
 
@@ -724,11 +1081,36 @@ Future<bool> handleExpenseUpload(Map<String, dynamic>? inputData) async {
     return false;
   } catch (e) {
     print('Error uploading expense: $e');
-    return false;
+    // We want to propagate the timeout/connection error up
+    throw e;  // Important: throw the error instead of returning false
   }
 }
 
-Future<bool> uploadExpense(Map<String, dynamic> expenseData) async {
+// Helper function to store expenses for later upload
+Future<void> _storeExpenseForLater(SharedPreferences prefs, Map<String, dynamic> inputData) async {
+  List<Map<String, dynamic>> pendingExpenses = [];
+  String? existingExpenses = prefs.getString('pendingExpenses');
+
+  if (existingExpenses != null) {
+    pendingExpenses = List<Map<String, dynamic>>.from(jsonDecode(existingExpenses));
+  }
+
+  pendingExpenses.add(inputData);
+  await prefs.setString('pendingExpenses', jsonEncode(pendingExpenses));
+}
+
+// First, create a simple class to hold our result
+class ExpenseResult {
+  final bool success;
+  final bool wasUploaded;
+
+  ExpenseResult({
+    required this.success,
+    required this.wasUploaded,
+  });
+}
+
+Future<ExpenseResult> uploadExpense(Map<String, dynamic> expenseData) async {
   var connectivityResult = await Connectivity().checkConnectivity();
   SharedPreferences prefs = await SharedPreferences.getInstance();
 
@@ -736,36 +1118,50 @@ Future<bool> uploadExpense(Map<String, dynamic> expenseData) async {
   expenseData['timestamp'] = timestamp;
 
   if (connectivityResult != ConnectivityResult.none) {
-    // Try immediate upload if we have connection
-    bool success = await handleExpenseUpload(expenseData);
-    if (success) {
-      Fluttertoast.showToast(
-        msg: "Expense uploaded successfully",
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-      );
-      return true;
+    try {
+      bool success = await handleExpenseUpload(expenseData);
+      if (success) {
+        Fluttertoast.showToast(
+          msg: "Expense uploaded successfully",
+          backgroundColor: Colors.green,
+          textColor: Colors.white,
+        );
+        return ExpenseResult(success: true, wasUploaded: true);
+      }
+    } catch (e) {
+      // Connection timeout or other error - fall through to offline storage
+      print('Upload failed, saving for later: $e');
     }
   }
 
-  // If immediate upload failed or no connection, save for later upload
-  List<Map<String, dynamic>> pendingExpenses = [];
-  String? existingExpenses = prefs.getString('pendingExpenses');
-  if (existingExpenses != null) {
-    pendingExpenses = List<Map<String, dynamic>>.from(jsonDecode(existingExpenses));
+  // Store for later (either no connection or upload failed)
+  try {
+    List<Map<String, dynamic>> pendingExpenses = [];
+    String? existingExpenses = prefs.getString('pendingExpenses');
+    if (existingExpenses != null) {
+      pendingExpenses = List<Map<String, dynamic>>.from(jsonDecode(existingExpenses));
+    }
+    pendingExpenses.add(expenseData);
+    await prefs.setString('pendingExpenses', jsonEncode(pendingExpenses));
+
+    Fluttertoast.showToast(
+      msg: "Expense saved for later upload",
+      backgroundColor: Colors.orange,
+      textColor: Colors.white,
+    );
+
+    // Important: indicate success but NOT uploaded
+    return ExpenseResult(success: true, wasUploaded: false);
+  } catch (e) {
+    print('Error saving expense for later: $e');
+    Fluttertoast.showToast(
+      msg: "Error saving expense. Please try again.",
+      backgroundColor: Colors.red,
+      textColor: Colors.white,
+    );
+    return ExpenseResult(success: false, wasUploaded: false);
   }
-  pendingExpenses.add(expenseData);
-  await prefs.setString('pendingExpenses', jsonEncode(pendingExpenses));
-
-  Fluttertoast.showToast(
-    msg: "Expense saved for later upload",
-    backgroundColor: Colors.orange,
-    textColor: Colors.white,
-  );
-
-  return true;
 }
-
 
 Future<bool> handleConnectivityCheck() async {
   try {
@@ -878,40 +1274,50 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SharedPreferences prefs = await SharedPreferences.getInstance();
 
-  // Reset stale locks
   await prefs.setBool(operationLockKey, false);
-
-  // Initialize Workmanager
   await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
 
   bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-  int? activeVehicleId = prefs.getInt('vehicleId');
   String? userId = prefs.getString('userId');
+
+  // Check if there are pending operations and if last one was logout
+  String? pendingOperations = prefs.getString('pendingOperations');
+  if (pendingOperations != null) {
+    List<Map<String, dynamic>> operations = List<Map<String, dynamic>>.from(jsonDecode(pendingOperations));
+    if (operations.isNotEmpty) {
+      // If last operation was logout, clear vehicle data but keep user logged in
+      bool lastWasLogout = !operations.last.containsKey('parcursIn');
+      if (lastWasLogout) {
+        await prefs.remove('vehicleId');
+        await prefs.remove('lastKmValue');
+        Globals.vehicleID = null;
+        Globals.kmValue = null;
+      }
+    }
+  }
 
   if (isLoggedIn && userId != null) {
     Globals.userId = int.tryParse(userId);
-    Globals.vehicleID = activeVehicleId;
-    Globals.kmValue = prefs.getString('lastKmValue');
+    // Only set vehicle ID if not logged out
+    if (prefs.containsKey('vehicleId')) {
+      Globals.vehicleID = prefs.getInt('vehicleId');
+      Globals.kmValue = prefs.getString('lastKmValue');
+      await _loadImagesFromPrefs();
+    }
 
-    // Load saved images
-    await _loadImagesFromPrefs();
-
-
-
-      await Workmanager().registerPeriodicTask(
-        "connectivityCheck",
-        connectivityCheckTask,
-        frequency: const Duration(minutes: 15),
-        constraints: Constraints(
-          networkType: NetworkType.connected,
-          requiresBatteryNotLow: false,
-          requiresDeviceIdle: false,
-          requiresStorageNotLow: false,
-        ),
-        initialDelay: const Duration(minutes: 1),
-        existingWorkPolicy: ExistingWorkPolicy.replace,
-      );
-
+    await Workmanager().registerPeriodicTask(
+      "connectivityCheck",
+      connectivityCheckTask,
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+        requiresBatteryNotLow: false,
+        requiresDeviceIdle: false,
+        requiresStorageNotLow: false,
+      ),
+      initialDelay: const Duration(minutes: 1),
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
 
     try {
       await carServices.initializeData();
@@ -920,17 +1326,14 @@ void main() async {
     }
   }
 
-  // Set up connectivity listener
   Connectivity().onConnectivityChanged.listen((ConnectivityResult result) async {
     if (result != ConnectivityResult.none) {
-      // Check for pending operations when connectivity is restored
       await handleConnectivityCheck();
     }
   });
 
   runApp(MyApp(isLoggedIn: isLoggedIn));
 }
-
 
 
 class InitialLoadingScreen extends StatefulWidget {
@@ -945,11 +1348,37 @@ class InitialLoadingScreen extends StatefulWidget {
 class _InitialLoadingScreenState extends State<InitialLoadingScreen> {
   bool _isLoading = true;
   String? _errorMessage;
+  bool _hasInternet = true;
 
   @override
   void initState() {
     super.initState();
-    _initializeData();
+    _initializePage();
+  }
+
+  Future<void> _initializePage() async {
+    bool hasInternet = await _checkInternet();
+    setState(() {
+      _hasInternet = hasInternet;
+    });
+    if (hasInternet) {
+      await _initializeData();
+    }
+  }
+
+  Future<bool> _checkInternet() async {
+    // If user is logged into a vehicle (vehicleId exists), return true regardless of internet
+    if (Globals.vehicleID != null) {
+      return true;
+    }
+
+    // If not logged in, check internet to see if we can log in
+    try {
+      final result = await InternetAddress.lookup('example.com');
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } on SocketException catch (_) {
+      return false;
+    }
   }
 
   Future<void> _initializeData() async {
@@ -987,7 +1416,11 @@ class _InitialLoadingScreenState extends State<InitialLoadingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
+      body:!_hasInternet
+          ? NoInternetWidget(
+        onRetry: () => _initializeData(),
+      )
+          :  Center(
         child: _errorMessage != null
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1030,8 +1463,9 @@ class MyApp extends StatefulWidget {
 
 // Make this class public by removing underscore
 class MyAppState extends State<MyApp> with WidgetsBindingObserver {
-  // Camera tracking properties
+  // Track both camera usage and dialog visibility
   bool isCameraInUse = false;
+  bool isDialogVisible = false;
   DateTime? lastDialogShown;
   static const Duration dialogCooldown = Duration(seconds: 3);
 
@@ -1048,7 +1482,7 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   bool canShowDialog() {
-    if (isCameraInUse) return false;
+    if (isCameraInUse || isDialogVisible) return false;
 
     if (lastDialogShown != null) {
       final timeSinceLastDialog = DateTime.now().difference(lastDialogShown!);
@@ -1065,7 +1499,6 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   @override
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.resumed) {
       if (!canShowDialog()) return;
@@ -1079,19 +1512,33 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
           (pendingOperations != null || pendingExpenses != null)) {
 
         if (MyApp.navigatorKey.currentContext != null) {
+          // Set dialog as visible before showing
+          setState(() {
+            isDialogVisible = true;
+          });
+
           await Future.delayed(const Duration(milliseconds: 500));
           lastDialogShown = DateTime.now();
-          await showUploadDialog(MyApp.navigatorKey.currentContext!);
+
+          if (mounted) {
+            await showUploadDialog(MyApp.navigatorKey.currentContext!).then((_) {
+              // Reset dialog visibility when dialog is closed
+              if (mounted) {
+                setState(() {
+                  isDialogVisible = false;
+                });
+              }
+            });
+          }
         }
       }
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: MyApp.navigatorKey,  // Access through the static property
+      navigatorKey: MyApp.navigatorKey,
       title: 'GreenFleet Driver',
       theme: ThemeData(
         primaryColor: const Color.fromARGB(255, 101, 204, 82),
@@ -1175,7 +1622,7 @@ class _MyHomePageState extends State<MyHomePage> {
       Navigator.of(context).pop(); // Hide loading dialog
 
       if (data['success']) {
-        if (data['driver_id'] != null) {
+        if (data['driver_id'] != null && data['driver_id'] != -1) {
           carServices.initializeData();
           Globals.userId = data['driver_id'];
           print("Set Global User ID to: ${Globals.userId}");
@@ -1199,14 +1646,23 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           );
         } else {
-          print("Login Failed: User ID is null");
+          print("Login Failed: User ID is -1");
           Fluttertoast.showToast(
             backgroundColor: Colors.red,
             textColor: Colors.white,
-            msg: "User not found",
+            msg: "Invalid credentials",  // Updated error message for invalid credentials
             toastLength: Toast.LENGTH_SHORT,
           );
         }
+      } else {
+        // Handle case where success is false
+        print("Login Failed: Success is false");
+        Fluttertoast.showToast(
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+          msg: "Invalid credentials",  // Show message for invalid credentials
+          toastLength: Toast.LENGTH_SHORT,
+        );
       }
     } catch (e) {
       Navigator.of(context).pop();
@@ -1219,6 +1675,7 @@ class _MyHomePageState extends State<MyHomePage> {
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import 'driverPage.dart';
@@ -25,7 +26,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
   File? _image;
   final ImagePicker _picker = ImagePicker();
   bool _isSubmitting = false;
-  bool _isFuelOrOthersSelected = false;
+  bool _isOthersSelected = false;
 
   final List<String> _expenseTypes = ['Fuel', 'Wash', 'Others'];
 
@@ -102,6 +103,47 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
       });
 
       try {
+        // Show loading dialog first
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white,
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color.fromARGB(255, 101, 204, 82),
+                      ),
+                    ),
+                    SizedBox(height: 20),
+                    Text(
+                      'Submitting expense...',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+
+        DateTime now = DateTime.now();
+        String formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
+
         Map<String, String> expenseData = {
           'driver': Globals.userId.toString(),
           'vehicle': Globals.vehicleID.toString(),
@@ -110,16 +152,26 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
           'remarks': _remarksController.text,
           'cost': _costController.text.replaceAll(',', '.'),
           'image': _image?.path ?? '',
+          'timestamp': formattedDate,
         };
 
-        bool success = await uploadExpense(expenseData);
+        // Get the result from uploadExpense
+        ExpenseResult result = await uploadExpense(expenseData);
 
-        if (success) {
-          _showSuccessDialog();
-          _resetForm();
+        if (mounted) {
+          Navigator.of(context).pop(); // Hide loading dialog
+
+          if (result.success) {
+            // Now we pass the correct wasUploaded value to the success dialog
+            _showSuccessDialog(wasUploaded: result.wasUploaded);
+            _resetForm();
+          }
         }
       } catch (e) {
-        // Show error to user
+        if (mounted) {
+          Navigator.of(context).pop(); // Hide loading dialog
+        }
+
         Fluttertoast.showToast(
           msg: "Error submitting expense: $e",
           backgroundColor: Colors.red,
@@ -135,7 +187,13 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
     }
   }
 
-  Future<void> _showSuccessDialog() async {
+// Modify the success dialog to take a wasUploaded parameter
+  Future<void> _showSuccessDialog({required bool wasUploaded}) async {
+    // Define colors based on whether expense was uploaded or saved
+    final Color accentColor = wasUploaded
+        ? const Color.fromARGB(255, 101, 204, 82)  // Green for uploaded
+        : Colors.orange;                           // Orange for saved
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -155,40 +213,34 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color.fromARGB(255, 101, 204, 82)
-                        .withOpacity(0.1),
+                    color: accentColor.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.check_circle_outline,
+                  child: Icon(
+                    wasUploaded ? Icons.cloud_done : Icons.save,
                     size: 48,
-                    color: Color.fromARGB(255, 101, 204, 82),
+                    color: accentColor,
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'Expense Submitted',
-                  style: TextStyle(
+                Text(
+                  wasUploaded ? 'Expense Uploaded' : 'Expense Saved',
+                  style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
                   ),
                 ),
                 const SizedBox(height: 8),
-                FutureBuilder<ConnectivityResult>(
-                  future: Connectivity().checkConnectivity(),
-                  builder: (context, snapshot) {
-                    return Text(
-                      snapshot.data != ConnectivityResult.none
-                          ? 'Your expense has been uploaded successfully'
-                          : 'Your expense has been saved for later upload',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.black54,
-                      ),
-                      textAlign: TextAlign.center,
-                    );
-                  },
+                Text(
+                  wasUploaded
+                      ? 'Your expense has been uploaded successfully'
+                      : 'Your expense has been saved for later upload',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
@@ -197,7 +249,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                     MaterialPageRoute(builder: (context) => const DriverPage()),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 101, 204, 82),
+                    backgroundColor: accentColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
                         horizontal: 32, vertical: 16),
@@ -214,6 +266,8 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
       },
     );
   }
+
+
   void _resetForm() {
     setState(() {
       _kmController.clear();
@@ -221,7 +275,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
       _costController.clear();
       _selectedType = null;
       _image = null;
-      _isFuelOrOthersSelected = false;
+      _isOthersSelected = false;
     });
   }
 
@@ -441,8 +495,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                                 onChanged: (newValue) {
                                   setState(() {
                                     _selectedType = newValue;
-                                    _isFuelOrOthersSelected =
-                                        newValue == 'Fuel' ||
+                                    _isOthersSelected =
                                             newValue == 'Others';
                                   });
                                 },
@@ -521,7 +574,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                                 keyboardType: TextInputType.text,
                                 maxLines: 3,
                                 decoration: InputDecoration(
-                                  labelText: _isFuelOrOthersSelected
+                                  labelText: _isOthersSelected
                                       ? 'Remarks'
                                       : 'Remarks (Optional)',
                                   border: OutlineInputBorder(
@@ -546,7 +599,7 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                                   ),
                                 ),
                                 validator: (value) {
-                                  if (_isFuelOrOthersSelected &&
+                                  if (_isOthersSelected &&
                                       (value == null || value.isEmpty)) {
                                     return 'Please enter remarks';
                                   }
@@ -573,17 +626,6 @@ class _VehicleExpensePageState extends State<VehicleExpensePage> {
                   ),
                 ),
               ),
-              if (_isSubmitting)
-                Container(
-                  color: Colors.black.withOpacity(0.5),
-                  child: const Center(
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        Color.fromARGB(255, 101, 204, 82),
-                      ),
-                    ),
-                  ),
-                ),
             ],
           ),
         ),

@@ -249,312 +249,310 @@ class _LogoutPageState extends State<LogoutPage> {
   }
 
   Future<void> _submitData() async {
-    // Initial validation for KM
-    if (_kmController.text.isEmpty) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: const Text(
-              'Error',
-              style: TextStyle(
-                color: Color.fromARGB(255, 101, 204, 82),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: const Text('Please enter the KM.'),
-            actions: <Widget>[
-              TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
-      return;
-    }
-
-    // Safely get and validate the last KM value
-    int lastKm = 0;
+    // First, let's handle all our validations
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? lastKmValue = prefs.getString('lastKmValue');
-      if (lastKmValue != null) {
-        lastKm = int.parse(lastKmValue);
-      }
-
-      if (int.tryParse(_kmController.text) != null) {
-        int userInputKm = int.parse(_kmController.text);
-        if (userInputKm < lastKm) {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                title: const Text(
-                  'Error',
-                  style: TextStyle(
-                    color: Color.fromARGB(255, 101, 204, 82),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                content: Text('The entered KM must be greater than or equal to the last logged KM.\nLast km: $lastKm'),
-                actions: <Widget>[
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                    ),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            },
-          );
-          return;
-        }
-      }
-
-      // Check for required images
-      if (_image6 == null ||
-          _image7 == null ||
-          _image8 == null ||
-          _image9 == null ||
-          _image10 == null ||
-          parcursOut == null) {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: const Text(
-                'Error',
-                style: TextStyle(
-                  color: Color.fromARGB(255, 101, 204, 82),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: const Text('Please take all required pictures.'),
-              actions: <Widget>[
-                TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                  ),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
+      // Validate KM input
+      if (_kmController.text.isEmpty) {
+        await _showErrorDialog(
+          'Error',
+          'Please enter the KM value.',
+          Icons.error_outline,
         );
         return;
       }
 
+      // Validate KM against last recorded value
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? lastKmValue = prefs.getString('lastKmValue');
+      int lastKm = lastKmValue != null ? int.parse(lastKmValue) : 0;
+      int userInputKm = int.parse(_kmController.text);
+
+      if (userInputKm < lastKm) {
+        await _showErrorDialog(
+          'Invalid KM Value',
+          'The entered KM must be greater than or equal to the last logged KM.\nLast KM: $lastKm',
+          Icons.warning_amber_rounded,
+        );
+        return;
+      }
+
+      // Validate required photos
+      if (_image6 == null || _image7 == null || _image8 == null ||
+          _image9 == null || _image10 == null || parcursOut == null) {
+        await _showErrorDialog(
+          'Missing Photos',
+          'Please take all required pictures before logging out.',
+          Icons.photo_camera_outlined,
+        );
+        return;
+      }
+
+      // Show the logging out progress dialog
+      _showProgressDialog('Logging Out', 'Processing your logout request...');
+
+      // Store current state in Globals
+      Globals.image6 = _image6;
+      Globals.image7 = _image7;
+      Globals.image8 = _image8;
+      Globals.image9 = _image9;
+      Globals.image10 = _image10;
+      Globals.parcursOut = parcursOut;
+      Globals.kmValue = _kmController.text;
+
+      // Get current timestamp and attempt logout
+      String logoutDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
       try {
-        // Store images in Globals
-        Globals.image6 = _image6;
-        Globals.image7 = _image7;
-        Globals.image8 = _image8;
-        Globals.image9 = _image9;
-        Globals.image10 = _image10;
-        Globals.parcursOut = parcursOut;
-        Globals.kmValue = _kmController.text;
+        // Attempt the logout operation
+        bool success = await logoutVehicle(logoutDate);
 
-        // Get current timestamp
-        String logoutDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+        // Hide progress dialog
+        if (mounted) Navigator.of(context).pop();
 
-        _showLoggingOutDialog();
+        if (success) {
+          // Show success/saved dialog based on network result
+          await _showLogoutSuccessDialog(
+            wasUploaded: !await _hasPendingOperations(),
+          );
 
-        try {
-          // Store images in Globals
-          Globals.image6 = _image6;
-          Globals.image7 = _image7;
-          Globals.image8 = _image8;
-          Globals.image9 = _image9;
-          Globals.image10 = _image10;
-          Globals.parcursOut = parcursOut;
-          Globals.kmValue = _kmController.text;
-
-          String logoutDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-
-          _showLoggingOutDialog();
-
-          try {
-            bool success = await logoutVehicle(logoutDate);
-
-            // Always hide the loading dialog first
-            _hideLoggingOutDialog();
-
-            if (success) {
-              // Clear all globals
-              Globals.vehicleID = null;
-              Globals.kmValue = null;
-              Globals.image6 = null;
-              Globals.image7 = null;
-              Globals.image8 = null;
-              Globals.image9 = null;
-              Globals.image10 = null;
-              Globals.parcursOut = null;
-
-              if (mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => const DriverPage()),
-                );
-              }
-            } else {
-              throw Exception('Logout operation failed');
-            }
-          } catch (e) {
-            print('Error during logout process: $e');
-            if (mounted) {
-              showDialog(
-                context: context,
-                builder: (BuildContext context) {
-                  return AlertDialog(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    title: const Text(
-                      'Error',
-                      style: TextStyle(
-                        color: Color.fromARGB(255, 101, 204, 82),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    content: const Text('Failed to complete logout. Please try again.'),
-                    actions: <Widget>[
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                        ),
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('OK'),
-                      ),
-                    ],
-                  );
-                },
-              );
-            }
-          }
-        } catch (e) {
-          print('Error during logout process: $e');
+          // Navigate to driver page
           if (mounted) {
-            _hideLoggingOutDialog();
-
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  title: const Text(
-                    'Error',
-                    style: TextStyle(
-                      color: Color.fromARGB(255, 101, 204, 82),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  content: const Text('Failed to complete logout. Please try again.'),
-                  actions: <Widget>[
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('OK'),
-                    ),
-                  ],
-                );
-              },
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const DriverPage()),
             );
           }
         }
       } catch (e) {
-        print('Error in logout submit data: $e');
-        _hideLoggingOutDialog();
+        print('Network error during logout: $e');
+        if (mounted) Navigator.of(context).pop(); // Hide progress dialog
 
+        // Show saved for later dialog
+        await _showLogoutSuccessDialog(wasUploaded: false);
+
+        // Still navigate to driver page since data is saved
         if (mounted) {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                title: const Text(
-                  'Error',
-                  style: TextStyle(
-                    color: Color.fromARGB(255, 101, 204, 82),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                content: const Text('An error occurred while logging out. Please try again.'),
-                actions: <Widget>[
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              );
-            },
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const DriverPage()),
           );
         }
       }
+
     } catch (e) {
-      print('Error validating KM: $e');
+      print('Error during logout process: $e');
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-              title: const Text(
-                'Error',
-                style: TextStyle(
-                  color: Color.fromARGB(255, 101, 204, 82),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: const Text('Invalid KM value. Please try again.'),
-              actions: <Widget>[
-                TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Color.fromARGB(255, 101, 204, 82),
-                  ),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
+        Navigator.of(context).pop(); // Hide progress dialog if showing
+        await _showErrorDialog(
+          'Error',
+          'An unexpected error occurred. Please try again.',
+          Icons.error_outline,
         );
       }
     }
   }
+
+// Helper method to show a consistent error dialog
+  Future<void> _showErrorDialog(String title, String message, IconData icon) async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 48,
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+// Helper method to show progress dialog
+  void _showProgressDialog(String title, String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Color.fromARGB(255, 101, 204, 82),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+// Helper method to check if there are pending operations
+  Future<bool> _hasPendingOperations() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString('pendingOperations') != null;
+  }
+
+// Success dialog matching the login dialog style
+  Future<void> _showLogoutSuccessDialog({required bool wasUploaded}) async {
+    final Color accentColor = wasUploaded
+        ? const Color.fromARGB(255, 101, 204, 82)
+        : Colors.orange;
+
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    wasUploaded ? Icons.logout_rounded : Icons.cloud_upload,
+                    size: 48,
+                    color: accentColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  wasUploaded ? 'Vehicle Logout Complete' : 'Logout Saved',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  wasUploaded
+                      ? 'Vehicle has been logged out successfully'
+                      : 'Your logout has been saved and will be uploaded when connection is restored',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Continue',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {

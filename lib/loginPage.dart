@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/models/cars_model.dart';
 import 'package:app/services/car_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +13,7 @@ import 'dart:io';
 import 'driverPage.dart'; // Import DriverPage
 
 import 'globals.dart';
-import 'package:workmanager/workmanager.dart';
+
 
 import 'main.dart';
 
@@ -221,31 +223,6 @@ class _LoginPageState extends State<LoginPage> {
     });
   }
 
-  void _showLoggingDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return const Dialog(
-          child: Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    Color.fromARGB(255, 101, 204, 82),
-                  ),
-                ),
-                SizedBox(width: 16),
-                Text("Logging into vehicle"),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   void _hideLoggingDialog() {
     Navigator.of(context, rootNavigator: true).pop();
@@ -254,7 +231,8 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _submitData() async {
     // Initial validation checks
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('savedKm', _kmController.text); // Save the KM value with the key 'savedKm'.
+    await prefs.setString('savedKm', _kmController.text);
+
     if (_selectedCarId == null || _kmController.text.isEmpty) {
       showDialog(
         context: context,
@@ -264,9 +242,7 @@ class _LoginPageState extends State<LoginPage> {
             content: const Text('Please select a car and enter the KM.'),
             actions: <Widget>[
               TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
+                onPressed: () => Navigator.of(context).pop(),
                 child: const Text('OK'),
               ),
             ],
@@ -277,12 +253,8 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     // Check for required images
-    if (_image1 == null ||
-        _image2 == null ||
-        _image3 == null ||
-        _image4 == null ||
-        _image5 == null ||
-        parcursIn == null) {
+    if (_image1 == null || _image2 == null || _image3 == null ||
+        _image4 == null || _image5 == null || parcursIn == null) {
       showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -291,9 +263,7 @@ class _LoginPageState extends State<LoginPage> {
             content: const Text('Please take all required pictures.'),
             actions: <Widget>[
               TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
+                onPressed: () => Navigator.of(context).pop(),
                 child: const Text('OK'),
               ),
             ],
@@ -304,7 +274,7 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
+      _showProgressDialog('Logging In', 'Processing your login request...');
 
       // Store images in Globals
       Globals.image1 = _image1;
@@ -316,39 +286,12 @@ class _LoginPageState extends State<LoginPage> {
       Globals.vehicleID = _selectedCarId;
       Globals.kmValue = _kmController.text;
 
-      // Current DateTime
-      DateTime now = DateTime.now();
-
-      // Format as "YYYY-MM-DD HH:MM:SS"
-      String formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
-
-      final String loginDate = formattedDate;
-
-      // Prepare login images data
-      Map<String, dynamic> loginImages = {
-        'userId': Globals.userId.toString(),
-        'vehicleID': _selectedCarId.toString(),
-        'km': _kmController.text,
-        'image1': _image1!.path,
-        'image2': _image2!.path,
-        'image3': _image3!.path,
-        'image4': _image4!.path,
-        'image5': _image5!.path,
-        'image6': parcursIn!.path,
-        'type': 'login',
-        'timestamp': loginDate
-      };
-
-      // Save login state and data
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setInt('vehicleId', _selectedCarId!);
-      //await prefs.setString(pendingImagesKey, jsonEncode(loginImages));
-
       // KM validation
       _lastKmLogin ??= 0;
       if (int.tryParse(_kmController.text) != null) {
         int userInputKm = int.parse(_kmController.text);
         if (userInputKm < _lastKmLogin!) {
+          if (mounted) Navigator.of(context).pop(); // Hide progress dialog
           showDialog(
             context: context,
             builder: (BuildContext context) {
@@ -358,9 +301,7 @@ class _LoginPageState extends State<LoginPage> {
                     'The entered KM must be greater than or equal to the last logged KM.\nLast km: $_lastKmLogin'),
                 actions: <Widget>[
                   TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
+                    onPressed: () => Navigator.of(context).pop(),
                     child: const Text('OK'),
                   ),
                 ],
@@ -371,56 +312,204 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
 
-      _showLoggingDialog();
+      // Format current datetime
+      String loginDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
       print("submitDataLogin time: $loginDate");
-      // Perform vehicle login
-      await loginVehicle(loginDate);
 
-      // Schedule image upload task
-      // await Workmanager().registerOneOffTask(
-      //     "imageUpload_login_${DateTime.now().millisecondsSinceEpoch}",
-      //     uploadImageTask,
-      //     inputData: loginImages,
-      //     constraints: Constraints(
-      //       networkType: NetworkType.connected,
-      //       requiresBatteryNotLow: true,
-      //     ),
-      //     existingWorkPolicy: ExistingWorkPolicy.append,
-      //     backoffPolicy: BackoffPolicy.linear,
-      //     backoffPolicyDelay: const Duration(seconds: 30));
+      bool uploadSuccessful = false;
 
-      _hideLoggingDialog();
+      try {
+        // Add timeout to the loginVehicle call
+        uploadSuccessful = await loginVehicle(loginDate).timeout(
+          const Duration(seconds: 45),
+          onTimeout: () {
+            print("Login attempt timed out");
+            return false; // Return false on timeout
+          },
+        );
+        print("Upload successful: $uploadSuccessful");
+      } catch (e) {
+        print('Error during login attempt: $e');
+        uploadSuccessful = false;
+      }
 
-      // Navigate to driver page
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const DriverPage()),
-      );
+      if (mounted) Navigator.of(context).pop(); // Hide progress dialog
+
+      // Show the appropriate dialog based on upload success
+      await _showLoginSuccessDialog(wasUploaded: uploadSuccessful);
+
+      // Navigate to driver page regardless of upload status
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DriverPage()),
+        );
+      }
+
     } catch (e) {
       print('Error in login submit data: $e');
-      // Hide loading dialog if showing
-      _hideLoggingDialog();
-
-      // Show error to user
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Error'),
-            content: const Text(
-                'An error occurred while logging in. Please try again.'),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
+      if (mounted) {
+        Navigator.of(context).pop(); // Hide progress dialog
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Error'),
+              content: const Text('An unexpected error occurred. Please try again.'),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
+        );
+      }
     }
+  }
+
+  void _showProgressDialog(String title, String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Color.fromARGB(255, 101, 204, 82),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showLoginSuccessDialog({required bool wasUploaded}) async {
+    // Define the accent color based on whether the operation was uploaded or saved for later
+    final Color accentColor = wasUploaded
+        ? const Color.fromARGB(255, 101, 204, 82)  // Green for successful upload
+        : Colors.orange;                           // Orange for saved offline
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,  // Prevent dismissing by tapping outside
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Icon container with themed background
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    // Use login-specific icons
+                    wasUploaded ? Icons.login_rounded : Icons.cloud_upload,
+                    size: 48,
+                    color: accentColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Title text - corrected for login
+                Text(
+                  wasUploaded ? 'Vehicle Login Complete' : 'Login Saved',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Description text - corrected for login
+                Text(
+                  wasUploaded
+                      ? 'Vehicle has been logged in successfully'
+                      : 'Your login has been saved and will be uploaded when connection is restored',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.black54,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+
+                // Action button with proper navigation
+                ElevatedButton(
+                  onPressed: () {
+                    // First close the dialog
+                    Navigator.of(context).pop();
+
+                    // Then navigate to DriverPage, replacing the current route
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => const DriverPage()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 2,  // Subtle shadow for depth
+                  ),
+                  child: const Text(
+                    'Continue',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
